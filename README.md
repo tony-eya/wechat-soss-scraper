@@ -33,7 +33,7 @@ wechat-soss-scraper/
 
 > **图标出处**:所有 `.png` 模板素材均为微信桌面版界面控件的局部截图(20~90 像素),仅用于 OpenCV 模板匹配定位,版权归原应用(腾讯微信)所有。如微信改版导致某步定位失败,重新截取对应控件图覆盖原 png 即可。
 >
-> **窗口缩放大小**:程序已声明 Per-Monitor DPI Aware,可自适应 100%~150% 的系统缩放。为保证模板匹配与 OCR 最佳效果,建议将微信主窗口保持默认大小、系统缩放设为 100% 或 125%。窗口被意外放大/缩小时,删除 `scroll_calib.json` 与 `layout.json` 可让程序重新校准。
+> **窗口缩放大小**:**仅支持 100% 系统缩放**(Windows "显示设置" → "缩放与布局" → "100%")。125%/150%/175% 缩放会导致截图坐标与实际渲染像素不一致,模板匹配和 OCR 解析全面失效,整个流程无法运行。若主屏高分辨率必须用缩放,请将微信窗口拖到一台独立设置 100% 缩放的副屏再执行抓取。首次使用或更换缩放后,删除 `scroll_calib.json` 与 `layout.json` 让程序重新校准。
 
 ---
 
@@ -75,7 +75,20 @@ wechat-soss-scraper/
    pip install -r requirements.txt
    ```
 
-4. 打开微信并登录(保持窗口可见,不要最小化到托盘)。
+4. **配置环境变量**:将仓库内的 `tagui\src` 目录添加到系统 PATH,使 `tagui` 命令全局可用。
+
+   **GUI 方式**(永久生效,重启终端后生效):
+   - 打开"系统属性" → "环境变量" → "系统变量"中的 `Path` → "新建"
+   - 添加本仓库的 `tagui\src` 绝对路径,例如:`E:\SoftWare\wechat-soss-scraper\tagui\src`
+   - "确定"保存,重新打开 CMD/PowerShell
+
+   **PowerShell 临时方式**(仅当前会话生效):
+   ```powershell
+   $env:Path = "E:\SoftWare\wechat-soss-scraper\tagui\src;" + $env:Path
+   tagui --version   # 验证
+   ```
+
+5. 打开微信并登录(**保持窗口可见,不要最小化到托盘,且系统缩放必须为 100%**)。
 
 ---
 
@@ -192,7 +205,3 @@ python wx_all.py --phase close
 ## 免责声明
 
 本工具仅用于个人学习与研究。请遵守微信平台用户协议与相关法律法规,勿将抓取内容用于商业用途或高频抓取。
-
-## License
-
-MIT
