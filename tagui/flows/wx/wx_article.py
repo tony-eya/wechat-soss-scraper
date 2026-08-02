@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-# wx_all.py - 微信搜一搜公众号文章自动抓取(一体化主入口,单文件版)
+# wx_article.py - 微信搜一搜公众号文章自动抓取(文章类别脚本,一体化主入口,单文件版)
 #
 # 合并自: wx_common.py + date_utils.py + article_store.py + parse_results.py
 #         + setup_workdir.py + wx_agent.py + tag_all.tag 状态机
 #
 # 用法(一条命令完成整个流程):
-#   python wx_all.py --account 隆基绿能 --tab 文章 --start 2026-07-30 --end 2026-08-01
+#   python wx_article.py --account 隆基绿能 --tab 文章 --start 2026-07-30 --end 2026-08-01
 #
 # 流程: 检测微信主窗 -> 建独立临时工作目录(拷贝 .tag/.py/.png)
 #       -> 复制公众号名到剪贴板 -> 点侧边栏 home.png 打开搜一搜
@@ -13,8 +13,8 @@
 #       -> 保存 articles.json 到本目录 -> 关闭搜一搜窗口 -> 移除临时目录
 #
 # 可选维护命令:
-#   python wx_all.py --phase close   仅收尾(保存结果+关窗+清理)
-#   python wx_all.py --phase status  查看上次结果(不动 UI)
+#   python wx_article.py --phase close   仅收尾(保存结果+关窗+清理)
+#   python wx_article.py --phase status  查看上次结果(不动 UI)
 #
 # 退出码: 0=成功, 2=流程失败
 import argparse
@@ -163,6 +163,11 @@ LAYOUT_CALIB_FILE = 'layout.json'   # 列表布局学习结果(min_y / col_split
 # 经 WX_SOURCE_DIR 跨运行复用(见 run_tag), 新机器首次自动侦查 -> 开源安全。
 INPUT_FIELD_CACHE_FILE = os.path.join(
     os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'input_field_cache.json')
+
+# ---- article("文章"标签)侦查缓存 ----
+# 同 input_field 模式: 首次侦查写缓存, 后续复用坐标点击, 免去 SikuliX 全屏扫描。
+ARTICLE_CACHE_FILE = os.path.join(
+    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'article_cache.json')
 
 # ================================================================ 窗口
 def get_pid2name():
@@ -902,35 +907,52 @@ def recon_layout(phase, hwnd):
     return found
 
 
-def get_input_field(hwnd, refresh=False):
-    """获取搜一搜搜索框(input_field.png)的绝对屏幕坐标。
+def get_template_coord(hwnd, template_name, region_kind, cache_file,
+                       cache_key, label, refresh=False):
+    """获取某模板图标在窗口内的绝对屏幕坐标(通用缓存侦查)。
 
-    与滚动校准同模式: 优先读 input_field_cache.json 缓存(绑定窗口 rect,
-    位置一致才复用);无缓存/窗口移动/refresh 时用模板匹配侦查并写缓存。
+    与 input_field 同模式: 优先读缓存文件(绑定窗口 rect, 位置一致才复用);
+    无缓存/窗口移动/refresh 时用模板匹配侦查并写缓存。
     返回 (abs_x, abs_y, score) 或 None。跨运行复用缓存,免去每次
     TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
     rect = win_rect(hwnd)
-    cache = read_json(INPUT_FIELD_CACHE_FILE, {}) or {}
+    cache = read_json(cache_file, {}) or {}
     if not refresh and cache.get('window_rect') == list(rect):
-        hit = cache.get('input_field')
+        hit = cache.get(cache_key)
         if hit and len(hit) == 3:
-            print('INPUT_FIELD_FROM_CACHE @ (%d,%d) score=%.3f'
-                  % (hit[0], hit[1], hit[2]))
+            print('%s_FROM_CACHE @ (%d,%d) score=%.3f'
+                  % (label, hit[0], hit[1], hit[2]))
             return tuple(hit)
-    hit = find_template(hwnd, os.path.join(WX_DIR, 'input_field.png'),
-                        region=get_region('searchbox', hwnd))
+    hit = find_template(hwnd, os.path.join(WX_DIR, template_name),
+                        region=get_region(region_kind, hwnd))
     if hit:
         try:
-            write_json(INPUT_FIELD_CACHE_FILE, {
+            write_json(cache_file, {
                 'window_rect': list(rect),
-                'input_field': list(hit),
+                cache_key: list(hit),
                 'recon_at': datetime.datetime.now().isoformat(timespec='seconds'),
             })
-            print('INPUT_FIELD_RECON @ (%d,%d) score=%.3f (已缓存 %s)'
-                  % (hit[0], hit[1], hit[2], INPUT_FIELD_CACHE_FILE))
+            print('%s_RECON @ (%d,%d) score=%.3f (已缓存 %s)'
+                  % (label, hit[0], hit[1], hit[2], cache_file))
         except Exception as e:
-            print('INPUT_FIELD_CACHE_WRITE_FAIL %s' % e)
+            print('%s_CACHE_WRITE_FAIL %s' % (label, e))
     return hit
+
+
+def get_input_field(hwnd, refresh=False):
+    """获取搜一搜搜索框(input_field.png)的绝对屏幕坐标(委托通用版)。"""
+    return get_template_coord(hwnd, 'input_field.png', 'searchbox',
+                              INPUT_FIELD_CACHE_FILE, 'input_field',
+                              'INPUT_FIELD', refresh=refresh)
+
+
+def get_article_coord(hwnd):
+    """获取"文章"标签(article.png)的绝对屏幕坐标(与 input_field 同缓存模式)。
+
+    缓存文件 article_cache.json 按文章类型命名, 新机器首次自动侦查写缓存,
+    后续复用坐标点击, 免去 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
+    return get_template_coord(hwnd, 'article.png', 'article_tab',
+                              ARTICLE_CACHE_FILE, 'article', 'ARTICLE')
 
 
 def preflight_main(main_hwnd=None):
@@ -1526,7 +1548,7 @@ def setup_work_dir():
         if f.endswith(COPY_EXTS):
             shutil.copy2(src, os.path.join(wd, f))
             copied += 1
-    required = list(REQUIRED_TEMPLATES) + ['tag_all.tag', 'wx_all.py']
+    required = list(REQUIRED_TEMPLATES) + ['tag_all.tag', 'wx_article.py']
     missing = [f for f in required
                if not os.path.isfile(os.path.join(wd, f))]
     if missing:
@@ -1912,16 +1934,19 @@ def flow_fill_search():
 
 def flow_articles():
     """阶段C: 点击"文章"标签 -> 解析首屏 -> 落库 -> 返回状态。
-    由 tag 在原生 click article.png 后调用。返回 JSON: {ok, ...}"""
+    由 tag 在进入结果页后调用(article 点击已在 py 内用缓存坐标 SendInput 完成,
+    tag 不再原生 click article.png)。返回 JSON: {ok, ...}"""
     global _hwnd, _lt, _tt, _rt, _bt, _cfg, _account, _start, _end
     hwnd, l, t, r, b = _hwnd, _lt, _tt, _rt, _bt
-    # 点"文章"标签(重试)
+    # 点"文章"标签(缓存优先: 首次侦查写 article_cache.json, 后续复用坐标;重试)
     art = None
     for attempt in range(RETRY_ARTICLE_TAB):
-        art = click_template(hwnd, os.path.join(WX_DIR, 'article.png'),
-                             region=get_region('article_tab', hwnd),
-                             label='ARTICLE_TEMPLATE')
+        art = get_article_coord(hwnd)
         if art:
+            # SendInput 真实点击(与搜索框同模式,微信 UI 忽略合成鼠标消息)
+            sendinput_click(int(art[0]), int(art[1]))
+            print('CLICKED_ARTICLE_TAB @ (%d,%d) score=%.3f (attempt=%d)'
+                  % (int(art[0]), int(art[1]), art[2], attempt + 1))
             break
         time.sleep(1.5)
     if not art:
