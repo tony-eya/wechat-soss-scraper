@@ -1265,10 +1265,12 @@ if not exist "tagui_logging" (
 )
 
 rem hack chrome to prevent ended unexpectedly message
+rem NOTE(wx-soss): 原 php -q -r 内联修复在 Windows 下因嵌套引号 + chrome 锁定
+rem Preferences 文件而永久阻塞 -> tagui.cmd 永不退出 -> 上层 timeout 强杀(rc=124)。
+rem 本项目不使用 TagUI web 自动化(chrome profile 无关),故直接禁用该步骤。
 set "chrome_pref=chrome\tagui_user_profile\Default\Preferences"
 if exist "%chrome_pref%" (
-	php -q -r "file_put_contents('%chrome_pref%',str_replace('\"exited_cleanly\":false','\"exited_cleanly\":true',file_get_contents('%chrome_pref%')));" > nul 2>&1
-	php -q -r "file_put_contents('%chrome_pref%',str_replace('\"exit_type\":\"Crashed\"','\"exit_type\":\"Normal\"',file_get_contents('%chrome_pref%')));" > nul 2>&1
+	echo [tagui.cmd] SKIP php chrome-profile repair (disabled for wx-soss flow)
 )
 
 rem change back to initial directory where tagui is called
