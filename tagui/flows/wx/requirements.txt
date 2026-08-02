@@ -1,0 +1,8 @@
+# 微信搜一搜公众号文章自动抓取 - Python 依赖
+# 安装: pip install -r requirements.txt
+# Python 3.9+ 即可(实测 3.12 通过)
+numpy>=1.24
+pillow>=9.0
+opencv-python>=4.6
+rapidocr_onnxruntime>=1.3
+pyperclip>=1.8

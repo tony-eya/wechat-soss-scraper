@@ -1,0 +1,43 @@
+# ---- 抓取结果与运行数据(不入库) ----
+tagui/flows/wx/articles.json
+tagui/flows/wx/scroll_calib.json
+tagui/flows/wx/layout.json
+tagui/flows/wx/scroll_state.json
+tagui/flows/wx/search_result.json
+tagui/flows/wx/workdir.txt
+
+# ---- 运行时截图/诊断(不入库) ----
+tagui/flows/wx/tag_all_*.png
+tagui/flows/wx/scroll_probe_*.png
+tagui/flows/wx/*_stdout.log
+tagui/flows/wx/_tag_stdout.log
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- TagUI 运行时产物 ----
+tagui/src/tagui_chrome.log
+tagui/tagui_chrome.log
+
+# ---- Chrome 用户数据(含 cookies/登录凭据/浏览历史,严禁入库) ----
+tagui/src/chrome/tagui_user_profile/
+tagui/src/chrome/*/tagui_user_profile/
+
+# ---- 日志 ----
+*.log
+
+# ---- TagUI 官方运行时生成的日志(非仓库内容) ----
+tagui/src/tagui.sikuli/tagui.log
+tagui/src/tagui.sikuli/tagui_windows.log
+tagui/src/tagui_py/tagui_py.log
+tagui/src/tagui_py/tagui_py_windows.log
+tagui/src/tagui_r/tagui_r.log
+tagui/src/tagui_r/tagui_r_windows.log
+
+# ---- 临时目录 ----
+*.tmp
+temp/
