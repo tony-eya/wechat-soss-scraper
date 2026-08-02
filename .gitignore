@@ -12,6 +12,9 @@ tagui/flows/wx/scroll_probe_*.png
 tagui/flows/wx/*_stdout.log
 tagui/flows/wx/_tag_stdout.log
 
+# ---- 运行时临时目录 ----
+tagui/flows/wx/.tasks/
+
 # ---- Python ----
 __pycache__/
 *.py[cod]
@@ -20,6 +23,8 @@ __pycache__/
 venv/
 
 # ---- TagUI 运行时产物 ----
+tagui/src/tagui.sikuli/tagui_sikuli.in
+tagui/src/tagui.sikuli/tagui_sikuli.out
 tagui/src/tagui_chrome.log
 tagui/tagui_chrome.log
 

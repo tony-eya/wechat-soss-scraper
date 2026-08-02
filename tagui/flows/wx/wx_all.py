@@ -77,6 +77,22 @@ import numpy as np
 from PIL import Image, ImageGrab
 
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
+# 显式签名: 允许 GetWindowThreadProcessId 第二参传 None(NULL 指针)
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND,
+                                            ctypes.POINTER(wintypes.DWORD)]
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetForegroundWindow.argtypes = []
+kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+kernel32.GetCurrentThreadId.argtypes = []
+user32.AttachThreadInput.restype = wintypes.BOOL
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.BOOL]
+user32.BringWindowToTop.restype = wintypes.BOOL
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.SetForegroundWindow.restype = wintypes.BOOL
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 
 # ================================================================ 常量
 WX_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -101,6 +117,8 @@ VK_A = 0x41          # Ctrl+A
 VK_V = 0x56          # Ctrl+V
 VK_W = 0x57          # Ctrl+W 关闭标签页
 VK_ENTER = 0x0D
+VK_BACK = 0x08          # 退格 Backspace(删除字符)
+VK_1 = 0x31             # 数字键 '1'(触发搜索建议面板用)
 
 # ---- 界面等待(秒) ----
 SLEEP_CLICK = 0.1        # 点击前/后微停顿
@@ -220,10 +238,21 @@ def open_soss_from_main(main_hwnd, keyword=''):
         fy = t + int((b - t) * 0.06)
         sendinput_click(fx, fy)
         print('MAIN_SEARCHBOX_FALLBACK @ (%d,%d)' % (fx, fy))
-    time.sleep(1.5)
 
-    # 2) 在弹面板中找"搜索网络结果"(搜一搜入口)并点击
-    items, _ = ocr_region(main_hwnd, 0, 60, 900, 300)
+    # 2) 确保建议面板弹出: 点击搜索框后直接 OCR 不保证面板弹出(clean 状态下
+    #    面板可能不出现,实测只读到聊天列表)。可靠做法(用户实测确认):
+    #    点击搜索框 -> 输入一个字符(如 '1') -> 删除 -> 面板必定弹出,
+    #    且含"搜索网络结果"(搜一搜入口)。
+    #    注意: 必须用真实键盘事件敲 '1',不能用 set_clipboard('1')+ctrl+v ——
+    #    那会覆盖 main() 预复制的公众号名称,导致 flow_fill_search 阶段
+    #    ctrl+v 粘贴出 '1' 而非账号名。
+    hotkey(VK_1)                   # 直接敲 '1' 键(不经过剪贴板)
+    time.sleep(1.0)
+    hotkey(VK_BACK)                # 退格删除 '1'
+    time.sleep(1.0)
+
+    # 3) 在建议面板找"搜索网络结果"(搜一搜入口)并点击
+    items, _ = ocr_region(main_hwnd, 0, 60, r - l, 300)
     cands = find_text(items, '搜索网络结果', prefer_exact=False)
     if cands:
         cy, x0, x1, txt = cands[0]
@@ -232,9 +261,19 @@ def open_soss_from_main(main_hwnd, keyword=''):
         sendinput_click(abs_x, abs_y)
         print('CLICKED_SOSS_ENTRY %r @ (%d,%d)' % (txt, abs_x, abs_y))
         time.sleep(SLEEP_UI_LONG)
-        return find_wx_window()
+        
+        # 等待 SOSS 窗口彻底创建完成
+        for _ in range(20):
+            soss = find_wx_window()
+            if soss:
+                break
+            time.sleep(0.1)
+        if soss:
+            # 强制 SOSS 窗口置顶并激活，防止主窗口跳回
+            _force_soss_to_foreground(main_hwnd, soss)
+        return soss
 
-    # 兜底: 单击未弹出面板(部分微信版本),输入关键字触发建议面板
+    # 兜底: 面板仍未出现(极端情况),输入关键字触发建议面板
     print('SOSS_PANEL_NOT_POPPED - 尝试输入关键字触发建议面板')
     if not keyword:
         import pyperclip
@@ -265,7 +304,12 @@ def open_soss_from_main(main_hwnd, keyword=''):
         print('CLICKED_SOSS_ENTRY %r @ (%d,%d)' % (txt, abs_x, abs_y))
         time.sleep(SLEEP_UI_LONG)
 
-    return find_wx_window()
+    soss = find_wx_window()
+    if soss:
+        # 最小化微信主窗口，避免遮挡 SOSS 窗口
+        user32.ShowWindow(main_hwnd, 6)  # SW_MINIMIZE
+        time.sleep(0.3)
+    return soss
 
 
 def open_soss_via_home(main_hwnd, home_tpl):
@@ -302,18 +346,73 @@ def close_window(hwnd):
         time.sleep(0.5)
 
 
+def _force_soss_to_foreground(main_hwnd, soss_hwnd):
+    """同时执行三件事确保 SOSS 窗口完全在前台(解决搜索框路径打开 SOSS 后主窗口跳回的问题):
+    1. SW_MINIMIZE 微信主窗口，彻底剥夺其焦点资格；
+    2. AttachThreadInput + BringWindowToTop 提升 Z 序；
+    3. SetForegroundWindow 抢占前台锁。"""
+    # Step 1: 最小化主窗口
+    user32.ShowWindow(main_hwnd, 6)                   # SW_MINIMIZE
+    time.sleep(0.3)
+
+    # Step 2~3: 提开 S OSS 窗口到最前并抢前台
+    if _force_foreground(soss_hwnd):
+        print('SOSS_ACTIVATED_OK')
+    else:
+        print('SOSS_ACTIVATION_PARTIAL')
+
+
+def _force_foreground(hwnd, tries=3):
+    """可靠地把窗口带到前台(后台进程 SetForegroundWindow 常被前台锁拦截)。
+
+    组合技巧(逐步增强,任一成功即返回):
+      1) AttachThreadInput: 把当前线程输入队列接到目标窗口线程,
+         使 SetForegroundWindow 不再受"仅前台进程可抢前台"限制;
+      2) BringWindowToTop: 提升 Z 序;
+      3) SetForegroundWindow。
+    每次尝试后验证 GetForegroundWindow()==hwnd,失败重试。
+    返回是否已在前台。"""
+    for _ in range(tries):
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)      # SW_RESTORE
+            time.sleep(0.3)
+        if not user32.IsWindowVisible(hwnd):
+            user32.ShowWindow(hwnd, 5)      # SW_SHOW
+            time.sleep(0.3)
+        fg = user32.GetForegroundWindow()
+        fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+        cur_tid = kernel32.GetCurrentThreadId()
+        attached = False
+        if fg and fg_tid and fg_tid != cur_tid:
+            attached = bool(user32.AttachThreadInput(fg_tid, cur_tid, True))
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(fg_tid, cur_tid, False)
+        time.sleep(0.4)
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+    return user32.GetForegroundWindow() == hwnd
+
+
+def ensure_foreground(hwnd):
+    """惰性激活: 截图/OCR/点击前调用。窗口已在前台则零开销,
+    否则强制带到前台并验证。返回是否已在前台。"""
+    if not hwnd:
+        return False
+    if user32.GetForegroundWindow() == hwnd:
+        return True
+    return _force_foreground(hwnd)
+
+
 def activate(hwnd):
     """激活窗口;若窗口最小化(IsIconic)或隐藏(托盘,WS_VISIBLE 清除)则先还原/显示。
-    注意: SetForegroundWindow 对最小化/隐藏窗口无效,必须先 ShowWindow 恢复。"""
-    if user32.IsIconic(hwnd):
-        user32.ShowWindow(hwnd, 9)      # SW_RESTORE
-        time.sleep(0.3)
-    if not user32.IsWindowVisible(hwnd):
-        user32.ShowWindow(hwnd, 5)      # SW_SHOW
-        time.sleep(0.3)
-    user32.keybd_event(VK_ALT, 0, 0, 0)
-    user32.SetForegroundWindow(hwnd)
-    user32.keybd_event(VK_ALT, 0, 2, 0)
+    用 _force_foreground 确保真正到达前台(仅 ShowWindow/SetForegroundWindow
+    在后台进程下常被 Windows 前台锁拦截,窗口虽"打开"但被其他窗口盖住,
+    导致截图/点击打到错误窗口)。"""
+    _force_foreground(hwnd)
     time.sleep(SLEEP_ACTIVATE)
 
 
@@ -334,7 +433,7 @@ _MOUSEEVENTF_RIGHTUP = 0x0010
 
 class _MOUSEINPUT(ctypes.Structure):
     _fields_ = [('dx', ctypes.c_long), ('dy', ctypes.c_long),
-                ('mouseData', ctypes.c_ulong), ('dwFlags', ctypes.c_ulong),
+                ('mouseData', ctypes.c_long), ('dwFlags', ctypes.c_ulong),
                 ('time', ctypes.c_ulong), ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
 
 
@@ -391,10 +490,25 @@ def hotkey(*vks):
 
 
 def scroll_wheel(abs_x, abs_y, clicks, direction='down'):
-    """在指定屏幕坐标滚动鼠标滚轮;clicks 为滚动格数(1 格 = 120 WHEEL_DELTA)"""
+    """SendInput 真实滚轮: 逐格发送 MOUSEEVENTF_WHEEL(每格 -120/120 WHEEL_DELTA)。
+
+    与点击同理: 微信等桌面应用只响应真实硬件级输入队列。
+    旧实现用 mouse_event(合成消息)一次发多格 delta,微信只解释为 1 格
+    (表现为"一格一格滚、滚不到目标距离");改为 SendInput 逐格发送,
+    模拟人手快速滚动,微信把连续格合并为一次平滑滚动到位。
+    clicks 为滚动格数(1 格 = 120 WHEEL_DELTA)。"""
     user32.SetCursorPos(int(abs_x), int(abs_y))
-    delta = -120 * clicks if direction == 'down' else 120 * clicks
-    user32.mouse_event(0x0800, 0, 0, delta, 0)  # MOUSEEVENTF_WHEEL
+    time.sleep(0.1)
+    delta = -120 if direction == 'down' else 120
+    for _ in range(max(1, int(clicks))):
+        i = _INPUT()
+        i.type = _INPUT_MOUSE
+        i.mi.dx = 0
+        i.mi.dy = 0
+        i.mi.mouseData = delta
+        i.mi.dwFlags = 0x0800   # MOUSEEVENTF_WHEEL
+        user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(_INPUT))
+        time.sleep(0.03)        # 逐格间隔,模拟真实滚轮节奏
     time.sleep(SLEEP_WHEEL)
 
 
@@ -563,7 +677,9 @@ def ocr_region(hwnd, x0, y0, x1, y1, path=None):
     """截取窗口内指定区域并 OCR,返回 (带窗口偏移的 items, 窗口rect)。
     区域越小 OCR 越快,调用方无需关心裁剪偏移。
     越界区域会 clamp 到窗口范围内(REGION 常量按 1920 宽设计,
-    小窗口下避免截到窗口外的桌面/其他程序)。"""
+    小窗口下避免截到窗口外的桌面/其他程序)。
+    截图前确保窗口在前台,否则截到的是盖住它的其他窗口内容。"""
+    ensure_foreground(hwnd)
     l, t, r, b = win_rect(hwnd)
     # clamp 到窗口边界
     x0 = max(x0, 0)
@@ -586,7 +702,7 @@ def find_template(hwnd, template_path, region=None, threshold=0.82):
 
     region: (x0, y0, x1, y1) 窗口内相对坐标;None=整个窗口
     返回 (abs_cx, abs_cy, score) 或 None。score 为归一化相关系数。
-    """
+    截图前确保窗口在前台,否则匹配到的是盖住它的其他窗口内容。"""
     import cv2
 
     if not os.path.isfile(template_path):
@@ -594,6 +710,7 @@ def find_template(hwnd, template_path, region=None, threshold=0.82):
         print('WX_DIR=%s files=%s' % (WX_DIR, sorted(os.listdir(WX_DIR))))
         raise FileNotFoundError('template file not found: %s' % template_path)
 
+    ensure_foreground(hwnd)
     l, t, r, b = win_rect(hwnd)
     if region:
         rx0, ry0, rx1, ry1 = region
@@ -631,6 +748,7 @@ def find_templates(hwnd, template_path, region=None, threshold=0.82,
         print('WX_DIR=%s files=%s' % (WX_DIR, sorted(os.listdir(WX_DIR))))
         raise FileNotFoundError('template file not found: %s' % template_path)
 
+    ensure_foreground(hwnd)
     l, t, r, b = win_rect(hwnd)
     if region:
         rx0, ry0, rx1, ry1 = region
@@ -662,7 +780,9 @@ def find_templates(hwnd, template_path, region=None, threshold=0.82,
 
 
 def screen_shot(hwnd, path=None):
-    """截取窗口区域,可选保存,返回 (PIL.Image, (l,t,r,b))"""
+    """截取窗口区域,可选保存,返回 (PIL.Image, (l,t,r,b))。
+    截图前确保窗口在前台,否则截到的是盖住它的其他窗口内容。"""
+    ensure_foreground(hwnd)
     l, t, r, b = win_rect(hwnd)
     shot = ImageGrab.grab(bbox=(l, t, r, b))
     if path:
@@ -708,11 +828,12 @@ def get_region(kind, hwnd=None, w=0, h=0):
         'menu': (0, max(40, int(h * 0.04)), w, int(h * 0.55)),
         # "文章"标签: 上部中部偏左
         'article_tab': (int(w * 0.15), int(h * 0.08), int(w * 0.85), int(h * 0.35)),
-        # 搜索框(模板匹配): 上部。注意下界必须留足模板高度余量,
-        # 否则模板下半被裁剪 -> TM_CCOEFF_NORMED 分数崩盘 (实测 1.00->0.28)。
-        # input_field.png(70x29) 中心约在 h*0.44, 模板底边约 h*0.47,
-        # 下界取 h*0.55 保证完整包含。home_icon 在主窗口无此问题(左侧窄条)。
-        'searchbox': (0, int(h * 0.08), w, int(h * 0.55)),
+        # 搜索框(模板匹配): 上部。注意上下界都必须留足模板高度余量,
+        # 否则模板任一侧被裁剪 -> TM_CCOEFF_NORMED 分数崩盘 (实测 1.00->0.28/0.48)。
+        # 实测: wx_search.png(70x25) 中心在窗口内 (116,57), 顶边 y=45;
+        # 若上界取 h*0.08(=51) 会裁掉模板顶 6px -> 分数 1.00->0.48 匹配失败。
+        # 故上界放宽到 0(顶部整条), 下界取 h*0.55 保证完整包含。
+        'searchbox': (0, 0, w, int(h * 0.55)),
         # 搜索框(OCR 兜底)
         'searchbox_ocr': (int(w * 0.15), int(h * 0.15), int(w * 0.85), int(h * 0.55)),
         # 微信侧边栏 home 图标: 最左侧窄条
@@ -769,11 +890,15 @@ def recon_layout(phase, hwnd):
 
 def preflight_main(main_hwnd=None):
     """流程前置侦查: 验证主窗口 home 图标可定位。
-    返回 (ok, found)。ok=False 时调用方应回退到搜索框方案或中止。"""
+    返回 (ok, found)。ok=False 时调用方应回退到搜索框方案或中止。
+    注意: 微信主窗口可能是隐藏/托盘状态,必须先强制带到前台,
+    否则 find_template 截图截到的是盖住微信的其他窗口 -> 误判无图标。"""
     mh = main_hwnd or find_weixin_main()
     if not mh:
         print('ERROR - NO_WECHAT_MAIN_WINDOW')
         return False, {}
+    if not _force_foreground(mh):
+        print('PREFLIGHT_MAIN WARN - 主窗口未能带到前台,后续截图可能截到其他窗口')
     found = recon_layout('main', mh)
     ok = 'home.png' in found
     print('PREFLIGHT_MAIN %s (home_icon_score=%.3f)'
@@ -987,6 +1112,14 @@ def _is_noise_line(t):
     """是否非标题噪音行(按钮/标签/正文片段/账号头部)"""
     if t in ('关注', '私信', '全部', '贴图', '文章', '视频号', '更多', '复制链接', '刷新', '展开'):
         return True
+    # 日期/星期分组行: 微信搜一搜公众号列表按日期分组,
+    # "7月15日" / "星期五" / "昨天" 等是分组标题,不是文章标题。
+    if re.fullmatch(r'\d{1,2}月\d{1,2}日', t):
+        return True
+    if re.fullmatch(r'星期[一二三四五六日天]', t):
+        return True
+    if t in ('今天', '昨天', '前天'):
+        return True
     # 账号头部噪音: 简介正文片段/原创内容统计/视频号账号行
     if ('原创内容' in t or '视频号：' in t or t.startswith('视频号')
             or re.search(r'篇原创', t)):
@@ -1003,19 +1136,30 @@ def _is_noise_line(t):
 def _parse_single_column(col_items):
     """单列内解析: 标题行 + 元信息行(日期 阅读X 赞Y) 成对出现。
     col_items: [(cy, x0, x1, text)] 已按 y 升序(且同属一列)。
+    微信搜一搜公众号列表为"日期分组"结构:
+        7月15日            <- 日期分组行(独立,无阅读/赞)
+        35.5%！隆基再次...  <- 文章标题(可能被 OCR 拆成多行)
+        阅读7741 赞53      <- 元信息行(闭合一条)
+    日期分组行不作为标题;文章条目的 date 从上方最近的分组行继承。
     返回: [{title, date, read_count, cy, cx, cx0}]"""
     items = []
     pending_title = None
     pending_cy = None
     pending_cx = None
     pending_cx0 = None
+    cur_date = None   # 最近看到的日期分组行(7月X日 / 星期X),供文章继承
     for cy, x0, x1, t in col_items:
+        # 日期/星期分组行: 记录为当前分组日期,不作为标题
+        d = parse_date(t)
+        if d and ('阅读' not in t) and ('赞' not in t):
+            cur_date = d
+            continue
         # 元信息行: 含 阅读 或 赞
         if ('阅读' in t) or ('赞' in t):
             if pending_title is not None:
                 items.append({
                     'title': pending_title,
-                    'date': parse_date(t),
+                    'date': parse_date(t) or cur_date,
                     'read_count': parse_read_count(t),
                     'cy': pending_cy,
                     'cx': pending_cx,
@@ -2129,11 +2273,11 @@ def _step_scroll():
     else:
         span_px = None
         print('SCROLL_SPAN_CALC_FAIL - 用固定 4 篇高兜底')
-    # 2) 按该跨距滚动(滚到底触发微信自动加载下一页)
+    # 2) 按该跨距滚动(滚到底触发微信自动加载下一页)。
+    #    无需额外等待: 主循环先 detail(tag3)抓完才进入本函数,列表已稳定。
     _scroll_by_items(hwnd, l, t, r, b,
                      SCROLL_ITEMS_PER_PAGE,
                      target_px=span_px if span_px and span_px > 0 else None)
-    time.sleep(0.5)
     # 3) 与 tag1 完全相同的列表分析: 整窗口截图 -> OCR -> parse_list_items
     shot, _ = screen_shot(hwnd, os.path.join(WX_DIR, 'tag_all_scroll.png'))
     res_items = ocr_image(shot)

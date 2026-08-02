@@ -12,9 +12,8 @@
 
 ```
 wechat-soss-scraper/
-├── tagui/                    # TagUI 运行时(官方引擎,包含 docs/src)
-│   ├── docs/                 # TagUI 官方文档
-│   ├── src/                  # TagUI 运行时(tagui.cmd / php / node)
+├── tagui/                    # TagUI 运行时(官方引擎,包含 src)
+│   ├── src/                  # TagUI 运行时(tagui.cmd / php / node / sikulix)
 │   └── flows/
 │       └── wx/               # ★ 微信抓取模块(本项目全部业务代码)
 │           ├── wx_all.py     # 一体化状态机(全部逻辑)
@@ -22,7 +21,7 @@ wechat-soss-scraper/
 │           ├── requirements.txt
 │           ├── home.png      # 微信侧边栏"搜一搜"图标模板
 │           ├── wx_search.png # 微信主窗口顶部搜索框模板
-│           ├── input_field.png
+│           ├── input_field.png  # 搜一搜窗口搜索框模板
 │           ├── article.png   # "文章"标签模板
 │           ├── more.png      # 详情页"..."更多按钮模板
 │           ├── copy_url.png  # "复制链接"菜单模板
@@ -32,7 +31,9 @@ wechat-soss-scraper/
 └── README.md
 ```
 
-> 素材 png 是微信界面控件的小截图(20~90 像素)。如果微信改版导致某步定位失败,重新截一张同尺寸的图覆盖即可。
+> **图标出处**:所有 `.png` 模板素材均为微信桌面版界面控件的局部截图(20~90 像素),仅用于 OpenCV 模板匹配定位,版权归原应用(腾讯微信)所有。如微信改版导致某步定位失败,重新截取对应控件图覆盖原 png 即可。
+>
+> **窗口缩放大小**:程序已声明 Per-Monitor DPI Aware,可自适应 100%~150% 的系统缩放。为保证模板匹配与 OCR 最佳效果,建议将微信主窗口保持默认大小、系统缩放设为 100% 或 125%。窗口被意外放大/缩小时,删除 `scroll_calib.json` 与 `layout.json` 可让程序重新校准。
 
 ---
 
