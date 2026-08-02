@@ -26,8 +26,13 @@
 - **OCR 按窗口比例自适应** — 滚动翻页、列表解析区域按窗口宽高比例生成，窗口大小随意
 - **滚动自校准** — 滚轮 1 格滚动像素数首屏动态实测并缓存（`scroll_calib.json`），换电脑 / 换鼠标无需改代码
 - **双列瀑布流容错** — 列表布局自动学习分列（`layout.json`）、行高实测、标题续行过滤，防止滚动后点错文章
-- **DPI 感知** — 进程声明 Per-Monitor DPI Aware，125%/150% 缩放下截图与点击坐标一致
-- **环境自检** — `--phase env` 一键检查依赖、模板素材、TagUI 启动器、DPI 是否就绪
+- **环境自检** — `--phase env` 一键检查依赖、模板素材、TagUI 启动器
+
+---
+
+## 效果演示
+
+<iframe src="https://player.bilibili.com/player.html?bvid=BV1gz4y1A7Wb&page=1&high_quality=1&danmaku=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" width="100%" height="450"></iframe>
 
 ---
 
@@ -35,12 +40,11 @@
 
 | 组件 | 说明 |
 |---|---|
-| Windows | Win10 / Win11（实测） |
+| Windows | Win10 / Win11（实测），**显示缩放必须 100%**（显示设置 → 缩放与布局 → 100%） |
 | Python | 3.9+（`pip install -r requirements.txt`） |
 | Node.js | TagUI 运行依赖 |
-| JDK | **17+（必须）**。TagUI 的 SikuliX 图像识别引擎依赖 Java 运行，缺失时 `click xx.png` 会报找不到 java / 无法启动 SikuliX。安装后配置 `JAVA_HOME` 环境变量并加入 PATH，`java -version` 验证 |
-| VC++ 2012 运行库 | **必须**。TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 exe，依赖 `MSVCR110.dll`。缺失时运行报 `MSVCR110.dll not found` |
-| 微信 | 桌面版，已登录，**保持窗口可见** |
+| JDK | 17+ |
+| 微信 | 桌面版（**版本 4.1.12.26**），已登录，**保持窗口可见** |
 
 依赖清单：`numpy`、`pillow`、`opencv-python`、`rapidocr_onnxruntime`（OCR 引擎）、`pyperclip`。
 
@@ -142,10 +146,6 @@ wechat-soss-scraper/
 └── README.md
 ```
 
-> **图标出处**：所有 `.png` 模板素材均为微信桌面版界面控件的局部截图（20~90 像素），仅用于 OpenCV 模板匹配定位，版权归原应用（腾讯微信）所有。如微信改版导致某步定位失败，重新截取对应控件图覆盖原 png 即可。
->
-> **窗口缩放大小**：**仅支持 100% 系统缩放**（Windows "显示设置" → "缩放与布局" → "100%"）。125%/150%/175% 缩放会导致截图坐标与实际渲染像素不一致，模板匹配和 OCR 解析全面失效，整个流程无法运行。若主屏高分辨率必须用缩放，请将微信窗口拖到一台独立设置 100% 缩放的副屏再执行抓取。首次使用或更换缩放后，删除 `scroll_calib.json`、`layout.json`、`input_field_cache.json`、`article_cache.json` 让程序重新校准。
-
 ---
 
 ## 素材模板说明（PNG）
@@ -156,14 +156,14 @@ wechat-soss-scraper/
 
 | 文件名 | 控件 | 用途 | 截图要求 |
 |---|---|---|---|
-| `home.png` | 微信主窗口左侧侧边栏的「搜一搜」放大镜图标 | 进入搜一搜入口 | 只截图标本身（放大镜图形），不含文字；匹配失败时程序自动回退「顶部搜索框 → 搜索网络结果」方案 |
+| `home.png` | 微信主窗口左侧侧边栏的「搜一搜」图标，没有则忽略 | 进入搜一搜入口 | 只截图标本身（放大镜图形），不含文字；匹配失败时程序自动回退「顶部搜索框 → 搜索网络结果」方案 |
 | `wx_search.png` | 微信主窗口**顶部**的搜索输入框 | 回退方案中点击顶部搜索框 | 截搜索框左端（含"搜索"占位文字区域即可）；若 `home.png` 匹配成功则用不到 |
-| `input_field.png` | 搜一搜窗口顶部的搜索输入框 | 定位后自动粘贴公众号名称并回车 | 截输入框左端一小段（含内部图标/占位符），需与 `wx_search.png` 区分（这是搜一搜窗口，不是主窗口） |
-| `article.png` | 搜一搜结果页顶部的「文章」标签 | 切换到文章列表页 | 截标签文字"文章"及其高亮态区域；若你的微信标签带图标，把图标一并截入 |
+| `input_field.png` | 搜一搜窗口搜索框下面的公众号 | 定位后自动粘贴公众号名称并回车 | 截标签文字"公众号" |
+| `article.png` | 某个公众号详细页「文章」标签，说明：标签栏是这个样子 【全部 贴图 文章 视频号】 | 切换到文章列表页 | 截标签文字"文章" |
 | `more.png` | 文章详情页右上角的「…」更多按钮 | 点开后出现复制链接菜单 | 只截"…"三个点按钮本体，背景尽量纯色 |
 | `copy_url.png` | 更多菜单弹层中的「复制链接」菜单项 | 复制当前文章 URL | 截菜单项文字"复制链接"一行（含左侧图标可选）；注意是弹出的**菜单**，不是页面内元素 |
 
-> **替换步骤**：截好图后，把新 png 覆盖到 `tagui/flows/wx/article/` 下同名文件 → 删除 `input_field_cache.json` / `article_cache.json`（否则仍用旧坐标）→ 运行 `python wx_article.py --phase env` 验证 `templates=6` 且无报错 → 开始抓取。如某步仍匹配失败，按报错提示重截对应控件。微信改版导致某步失效时同理，重新截取覆盖即可。
+> **替换步骤**：截好图后，把新 png 覆盖到 `tagui/flows/wx/article/` 下同名文件 → 删除 `input_field_cache.json` / `article_cache.json`（没有则忽略，否则仍用旧坐标）→ 运行 `python wx_article.py --phase env` 验证 `templates=6` 且无报错 → 开始抓取。如某步仍匹配失败，按报错提示重截对应控件。微信改版导致某步失效时同理，重新截取覆盖即可。
 
 ---
 
@@ -194,13 +194,11 @@ wechat-soss-scraper/
 | 布局学习 | `_learn_layout`：首屏 OCR 的 x0 分布最大间隙 → `col_split`；最顶标题 y → `list_top`，缓存 `layout.json` |
 | 行高测量 | `_measure_item_height`：同列相邻条目 cy 差中位数（瀑布流双列需分列） |
 | 防点错 | 滚动前后收集"标题续行"文本并过滤；列表稳定探测（连续两次 OCR 一致才点击） |
-| DPI | `enable_dpi_awareness()` 声明 Per-Monitor DPI Aware（截图/取窗/点击统一物理像素） |
 
 ### 为什么这样设计（踩过的坑）
 
 - **滚动后点错位置**：滚动动画未结束就抓坐标 → 点击落在旧位置（点到别的文章）。解决：滚动后等列表稳定 + 续行过滤。
 - **双列瀑布流错配**：左右列交错会把右列标题吞掉、元信息错配。解决：先按 x 分列，每列独立配对再合并。
-- **系统缩放坐标偏移**：125%/150% 缩放下截图与点击坐标互相矛盾。解决：进程声明 DPI 感知。
 - **换机器全部失灵**：写死的 `SCROLL_PX_PER_CLICK`、`POS_MAIN_SEARCHBOX`、`REGION_*` 区域。解决：全部改为动态实测 + 模板匹配 + 比例区域。
 - **全屏扫描太慢**：TagUI 原生 `click xx.png` 每次 SikuliX 全屏扫描 0.5-2s。解决：搜索框 / "文章"标签改用侦查缓存 + SendInput 真实点击。
 
@@ -248,7 +246,7 @@ wechat-soss-scraper/
 <details>
 <summary><b>报 MSVCR110.dll 缺失 / not found</b></summary>
 
-新电脑未装 VC++ 2012 运行库。安装 "Microsoft Visual C++ 2012 Redistributable" 的 x86 与 x64 版（x64 系两个都装），见"快速开始"第一步。
+TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 exe，依赖 `MSVCR110.dll`。缺失时运行报 `MSVCR110.dll not found`。该 dll 位于 Windows 系统目录（如 `C:\Windows\System32\MSVCR110.dll`），确保系统已安装 VC++ 2012 运行库。
 </details>
 
 <details>
