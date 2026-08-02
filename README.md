@@ -12,7 +12,7 @@
 [![OpenCV](https://img.shields.io/badge/OpenCV-Template%20Match-green?style=for-the-badge)](https://opencv.org/)
 [![OCR](https://img.shields.io/badge/OCR-RapidOCR-red?style=for-the-badge)](https://github.com/RapidAI/RapidOCR)
 
-> **100% 开源，100% 免费。** 基于 [TagUI](https://github.com/aisingapore/TagUI) + Python 实现微信桌面版「搜一搜」公众号文章的全自动抓取：搜索公众号 → 进入文章列表 → 滚动翻页 → 逐篇点开详情 → 复制链接 → 落库 `articles.json`。
+> 基于 [TagUI](https://github.com/aisingapore/TagUI) + Python 实现微信桌面版「搜一搜」公众号文章的全自动抓取：搜索公众号 → 进入文章列表 → 滚动翻页 → 逐篇点开详情 → 复制链接 → 落库 `articles.json`。代码完全公开，可自由修改与自部署。
 
 </div>
 
@@ -269,20 +269,20 @@ wechat-soss-scraper/
 
 ---
 
-## SaaS 托管版 — 已上线 🚀
+## 云端版 · Client Intel
 
-**不想折腾本地部署？浏览器打开就能用** 👉 **[intelcrm.cn](https://intelcrm.cn/)**
+本地版适合自己掌控一切；想省事的话，同一引擎已经在 **[Client Intel](https://intelcrm.cn/)** 云端跑起来了——智能 Agent 调度多源数据爬虫（含微信公众号文章），自动过滤垃圾与噪声，每天定时把 HTML 情报简报发到你的邮箱。
 
-本开源工具已作为微信情报抓取核心引擎，集成进 **Client Intel** — 企业级商业智能情报分析平台：智能 Agent 调度多源数据爬虫（含微信公众号文章），自动过滤垃圾与噪声，每日定时生成 HTML 情报简报并投递至邮箱。
+| | 本地版（本仓库） | 云端版（Client Intel） |
+|---|---|---|
+| 部署 | 自己装 Python / TagUI 环境 | 免部署，浏览器打开即用 |
+| 微信抓取 | 同源引擎（本工具） | 同源引擎（本工具） |
+| 数据 | `articles.json` 落本地 | 多源聚合 + 每日情报简报 |
+| 覆盖 | 单号单次抓取 | 8,800+ 企业目标，动态解析准确率 99.8% |
+| 场景 | 个人 / 学习 / 深度定制 | 企业新闻监测 / 竞品分析 / 市场追踪 |
+| 费用 | 免费（开源） | 7 天免费试用 |
 
-- **企业新闻监测** — 自动追踪目标企业与行业动态，重要信息不错过
-- **市场动态 & 竞品分析** — 多源数据实时聚合，**100% 真实出处**，极速直达
-- **每日情报简报** — 定时生成 HTML 报告邮件直达，告别手动翻找
-- **AI 洞察** — 面向投研 / 市场 / 品牌场景的情报自动化
-- **核心引擎同源** — 微信抓取与开源版同一代码，公开可审计，不放心可自行部署
-- **免费试用** — 7 天免费体验，覆盖 8,800+ 企业目标，动态解析准确率 99.8%
-
-[🚀 立即体验](https://intelcrm.cn/) · [查看平台介绍](https://intelcrm.cn/)
+[🚀 前往 Client Intel](https://intelcrm.cn/) · [平台功能介绍](https://intelcrm.cn/)
 
 ---
 
