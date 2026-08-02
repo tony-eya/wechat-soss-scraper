@@ -147,10 +147,22 @@ RETRY_ARTICLE_TAB = 3    # 点击"文章"标签重试次数
 # ---- tag2 滚动: 按"篇数"动态滚动(每轮滚 N 篇文章高度) ----
 SCROLL_ITEMS_PER_PAGE = 4     # 每轮滚动滚过多少篇文章
 SCROLL_PX_PER_CLICK = 112.0   # 滚轮 1 格移动像素的兜底估算(校准失败时用)
-SCROLL_CALIB_FILE = 'scroll_calib.json'   # 滚轮 1 格像素校准缓存(首屏动态实测)
+SCROLL_CALIB_FILE = os.path.join(
+    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'scroll_calib.json')
+# 校准缓存持久化到稳定目录(真实 WX_DIR),跨运行复用;TagUI 子进程从临时任务目录
+# import 本文件副本,其 __file__ 指向任务目录,故用 WX_SOURCE_DIR 环境变量指回真实
+# 源码目录(见 run_tag),否则每次运行新任务目录校准缓存恒为空,每次都重新校准。
 
 # ---- 动态布局校准缓存 ----
 LAYOUT_CALIB_FILE = 'layout.json'   # 列表布局学习结果(min_y / col_split / list_top)
+
+# ---- input_field(搜索框)侦查缓存 ----
+# 与 scroll_calib 同模式: 坐标是绝对屏幕坐标, 绑定窗口 rect 一起缓存。
+# 首次(或窗口移动/无缓存)用模板侦查写缓存, 后续直接复用坐标 SendInput 点击,
+# 免去每次 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。缓存写到真实源码目录,
+# 经 WX_SOURCE_DIR 跨运行复用(见 run_tag), 新机器首次自动侦查 -> 开源安全。
+INPUT_FIELD_CACHE_FILE = os.path.join(
+    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'input_field_cache.json')
 
 # ================================================================ 窗口
 def get_pid2name():
@@ -890,6 +902,37 @@ def recon_layout(phase, hwnd):
     return found
 
 
+def get_input_field(hwnd, refresh=False):
+    """获取搜一搜搜索框(input_field.png)的绝对屏幕坐标。
+
+    与滚动校准同模式: 优先读 input_field_cache.json 缓存(绑定窗口 rect,
+    位置一致才复用);无缓存/窗口移动/refresh 时用模板匹配侦查并写缓存。
+    返回 (abs_x, abs_y, score) 或 None。跨运行复用缓存,免去每次
+    TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
+    rect = win_rect(hwnd)
+    cache = read_json(INPUT_FIELD_CACHE_FILE, {}) or {}
+    if not refresh and cache.get('window_rect') == list(rect):
+        hit = cache.get('input_field')
+        if hit and len(hit) == 3:
+            print('INPUT_FIELD_FROM_CACHE @ (%d,%d) score=%.3f'
+                  % (hit[0], hit[1], hit[2]))
+            return tuple(hit)
+    hit = find_template(hwnd, os.path.join(WX_DIR, 'input_field.png'),
+                        region=get_region('searchbox', hwnd))
+    if hit:
+        try:
+            write_json(INPUT_FIELD_CACHE_FILE, {
+                'window_rect': list(rect),
+                'input_field': list(hit),
+                'recon_at': datetime.datetime.now().isoformat(timespec='seconds'),
+            })
+            print('INPUT_FIELD_RECON @ (%d,%d) score=%.3f (已缓存 %s)'
+                  % (hit[0], hit[1], hit[2], INPUT_FIELD_CACHE_FILE))
+        except Exception as e:
+            print('INPUT_FIELD_CACHE_WRITE_FAIL %s' % e)
+    return hit
+
+
 def preflight_main(main_hwnd=None):
     """流程前置侦查: 验证主窗口 home 图标可定位。
     返回 (ok, found)。ok=False 时调用方应回退到搜索框方案或中止。
@@ -1508,8 +1551,9 @@ def cleanup_work_dir():
     wd = get_work_dir_or_none()
     if wd and os.path.isdir(wd):
         for name in sorted(os.listdir(wd)):
-            if name.lower().endswith('.json'):
-                continue  # 结果文件保留在临时目录中
+            # 保留 JSON 与 TagUI 运行日志(_tag_stdout.log),便于排查滚动/抓取问题
+            if name.lower().endswith('.json') or name == '_tag_stdout.log':
+                continue  # 这些文件保留在临时目录中
             p = os.path.join(wd, name)
             try:
                 if os.path.isdir(p):
@@ -1519,7 +1563,7 @@ def cleanup_work_dir():
             except OSError as e:
                 print('WARN - CLEANUP_FAILED %s: %s' % (p, e))
         leftover = [n for n in os.listdir(wd)
-                    if not n.lower().endswith('.json')]
+                    if n != '_tag_stdout.log' and not n.lower().endswith('.json')]
         if leftover:
             print('WARN - WORK_DIR_PARTIAL_CLEANUP leftover=%s' % leftover)
         else:
@@ -1624,6 +1668,8 @@ def run_tag(tag_file, timeout=180):
     wd = get_work_dir()
     env = os.environ.copy()
     env['WX_WORKDIR'] = wd
+    env['WX_SOURCE_DIR'] = WX_DIR   # 指回真实源码目录: 子进程副本的 __file__ 指向任务目录,
+    # 持久化缓存(如 scroll_calib.json)需写到真实目录才能跨运行复用
     cmd = 'chcp 65001 >nul & "%s" %s -n -q' % (TAGUI_CMD, tag_file)
     log_path = os.path.join(wd, '_tag_stdout.log')
     with open(log_path, 'w', encoding='utf-8', errors='replace') as fh:
@@ -1808,8 +1854,11 @@ def flow_begin():
 
 
 def flow_wait_soss(timeout=30):
-    """等待 SOSS 窗口出现并激活,侦查阶段B(input_field 搜索框)。
-    供 tag 在 click home.png 后调用。返回 JSON: {ok, hwnd, input_field}"""
+    """等待 SOSS 窗口出现并激活,侦查阶段B(input_field 搜索框)并点击。
+    侦查坐标优先读缓存(见 get_input_field),命中直接用 SendInput 点击
+    (微信搜索框只响应真实输入);无缓存首次自动模板侦查并写缓存。
+    供 tag 在 click home.png 后调用(替代原生 click input_field.png)。
+    返回 JSON: {ok, hwnd, input_field}"""
     global _hwnd, _lt, _tt, _rt, _bt
     t0 = time.time()
     hwnd = None
@@ -1824,12 +1873,18 @@ def flow_wait_soss(timeout=30):
     activate(hwnd)
     _hwnd = hwnd
     _lt, _tt, _rt, _bt = win_rect(hwnd)
-    found = recon_layout('soss', hwnd)
-    ok = 'input_field.png' in found
+    hit = get_input_field(hwnd)
+    ok = hit is not None
+    if ok:
+        # SendInput 真实点击(不能 click_at: 微信搜索框忽略合成鼠标消息)
+        sendinput_click(int(hit[0]), int(hit[1]))
+        print('CLICKED_INPUT_FIELD @ (%d,%d) score=%.3f'
+              % (int(hit[0]), int(hit[1]), hit[2]))
+        time.sleep(SLEEP_UI_SHORT)   # 点击后等待搜索框聚焦(原 tag wait 1)
     print('FLOW_WAIT_SOSS %s hwnd=%s elapsed=%.1fs'
           % ('OK' if ok else 'FAIL', hwnd, time.time() - t0))
     return _flow_json(ok, phase='wait_soss', hwnd=hwnd,
-                      input_field=found.get('input_field.png'),
+                      input_field=list(hit) if hit else None,
                       recon='recon_soss.json')
 
 
@@ -1930,6 +1985,19 @@ def _run_detail_scroll(max_rounds=40):
                 'articles_total': len(arts['items']),
                 'articles_with_url': sum(1 for a in arts['items'] if a.get('url')),
                 'articles_pending': 0, 'articles': arts['items']}
+    # ---- 滚动校准前置(每个任务一次): 校准会真实滚动列表(tries 格),置于正式滚动循环前,
+    # 避免混入"一个一个滚"的视觉卡顿与校准+span 两次滚动叠加滚过头;
+    # 无缓存才实测,实测后滚动回顶还原基线,保证后续每轮 span 从列表顶部量起;
+    # px_per_click 已持久化到 WX_DIR,跨运行直接命中缓存不再校准。 ----
+    hwnd, l, t, r, b = _hwnd, _lt, _tt, _rt, _bt
+    calib = read_json(SCROLL_CALIB_FILE, {}) or {}
+    if calib.get('px_per_click'):
+        print('SCROLL_PX_PRELOOP_FROM_CACHE=%.1f' % calib['px_per_click'])
+    else:
+        px = get_scroll_px(hwnd, l, t, r, b)
+        print('SCROLL_PX_PRELOOP_CALIBRATED=%.1f' % px)
+        _scroll_to_top(hwnd, l, t, r, b)   # 校准滚了 tries 格,回顶还原基线(向上滚 10 格,顶部自然钳制)
+        _wait_list_stable(hwnd, min_y=get_list_min_y())
     rounds = 0
     while rounds < max_rounds:
         # a) detail: 抓取当前所有 pending 文章的链接
@@ -2372,6 +2440,23 @@ def _step_scroll():
     else:
         span_px = None
         print('SCROLL_SPAN_CALC_FAIL - 用固定 4 篇高兜底')
+    # 1b) 边界检测: 当前屏底部已出现日期范围外的文章(早于 start)说明已到列表
+    # 末尾,再滚动只会看到更早(更在范围外)的数据,直接视为完成,不滚动。
+    # 注意列表按日期倒序(新的在上),一旦屏内可见最早日期 < start 即达边界。
+    if _start and items0:
+        d0 = [it['date'] for it in items0 if it.get('date')]
+        if d0 and min(d0) < _start:
+            print('SCROLL_BOUNDARY_REACHED - 当前屏已见范围外数据,不再滚动')
+            arts = load_articles()
+            arts['passed_start'] = True   # 让 covered 判定生效,主循环直接结束
+            save_articles(arts)
+            write_json('scroll_state.json', {
+                'seen_titles': list(seen_titles), 'rounds': round_no})
+            result = {'status': 'ok', 'round': round_no, 'new_count': 0,
+                      'earliest_visible': min(d0), 'no_new': True,
+                      'limit_reached': False, 'boundary': True}
+            write_json('matched_items.json', result)
+            return result
     # 2) 按该跨距滚动(滚到底触发微信自动加载下一页)。
     #    无需额外等待: 主循环先 detail(tag3)抓完才进入本函数,列表已稳定。
     _scroll_by_items(hwnd, l, t, r, b,

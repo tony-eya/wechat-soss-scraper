@@ -4,15 +4,15 @@
 // 执行序列:
 //   py flow_begin()          侦查阶段A(主窗口 home 图标)
 //   (若 SOSS 未开) click home.png     原生 SikuliX 全屏点击打开搜一搜
-//   py flow_wait_soss()      等待 SOSS + 侦查阶段B(input_field 搜索框)
-//   click input_field.png    原生点击搜索框
+//   py flow_wait_soss()      等待 SOSS + 阶段B(input_field 搜索框)侦查并点击
 //   py flow_fill_search()    粘贴账号 + 回车 + OCR 定位公众号并点击
 //   click article.png        原生点击"文章"标签
 //   py flow_articles()       解析首屏 -> 落库 -> 状态机(滚动+详情)
 //
-// 侦查层(recon)保证每个图标先侦查确认可定位;已定位的图标由 tag 原生
-// click 完成(不经 get_region,不受区域裁剪影响);py 块负责侦查/粘贴/
-// OCR定位/滚动/详情等逻辑。坐标全部运行时定位,不写死 -> 开源安全。
+// 侦查层(recon)保证每个图标先侦查确认可定位;坐标全部运行时定位,不写死 ->
+// 开源安全。input_field 由 py 块 get_input_field 侦查(缓存复用)后以
+// SendInput 真实点击完成(微信搜索框只响应真实输入);home/article 仍由 tag
+// 原生 click 完成;py 块负责侦查/粘贴/OCR定位/滚动/详情等逻辑。
 //
 // 兼容两条入口路径:
 //   A) 正常路径: SOSS 未开,py flow_begin 后由 click home.png 打开;
@@ -45,9 +45,6 @@ import wx_all
 _r = json.loads(wx_all.flow_wait_soss())
 print('FLOW_WAIT_SOSS ok=%s hwnd=%s' % (_r.get('ok'), _r.get('hwnd')))
 py finish
-
-click input_field.png
-wait 1
 
 py begin
 import sys, os, json
