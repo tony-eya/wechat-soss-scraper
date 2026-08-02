@@ -1,6 +1,7 @@
 # ---- 抓取结果与运行数据(不入库) ----
 tagui/flows/wx/articles.json
 tagui/flows/wx/scroll_calib.json
+tagui/flows/wx/input_field_cache.json
 tagui/flows/wx/layout.json
 tagui/flows/wx/scroll_state.json
 tagui/flows/wx/search_result.json
