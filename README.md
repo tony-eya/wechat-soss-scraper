@@ -58,24 +58,29 @@ wechat-soss-scraper/
 | Windows | Win10 / Win11(实测) |
 | Python | 3.9+(`pip install -r requirements.txt`) |
 | Node.js | TagUI 运行依赖 |
+| VC++ 2012 运行库 | **必须**。TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 exe,依赖 `MSVCR110.dll`。缺失时运行报 `MSVCR110.dll not found` |
 | 微信 | 桌面版,已登录 |
 
-依赖清单:`numpy`、`pillow`、`opencv-python`、`rapidocr_onnxruntime`(OCR 引擎)、`pyperclip`。
+依赖清单:`numpy`、`pillow`、`opencv-python`、`rapidocr_onnxruntime`(OCR 引擎)、`pyperclip`。原生运行库依赖:`Microsoft Visual C++ 2012 Redistributable(x86 & x64)`。
 
 ---
 
 ## 安装
 
 1. 安装 Python 3.9+ 与 Node.js。
-2. 克隆 / 拷贝本目录到任意位置(路径无硬编码,整目录可迁移)。
-3. 安装 Python 依赖:
+2. **安装 Microsoft Visual C++ 2012 Redistributable(x86 & x64)**:
+   - 本步骤必做。TagUI 自带的 `src\unx\*`(curl/grep/sort 等)、`src\php\*`、`phantomjs` 均为原生 Windows exe,依赖 `MSVCR110.dll`(VC++ 2012 运行库)。新电脑未安装时会报 `MSVCR110.dll 缺失/not found`,整个流程无法启动。
+   - 官方下载:Microsoft 官网搜索 "Visual C++ Redistributable for Visual Studio **2012**",下载并安装 **x86(vcredist_x86.exe)** 与 **x64(vcredist_x64.exe)** 两个版本(64 位系统两个都要装,32 位只装 x86)。
+   - 验证:安装后运行 `.\tagui\src\unx\grep.exe --version`,不再报 dll 缺失即成功;或检查 `C:\Windows\System32\MSVCR110.dll`(x64)与 `C:\Windows\SysWOW64\MSVCR110.dll`(x86)是否存在。
+3. 克隆 / 拷贝本目录到任意位置(路径无硬编码,整目录可迁移)。
+4. 安装 Python 依赖:
 
    ```bash
    cd tagui/flows/wx
    pip install -r requirements.txt
    ```
 
-4. **配置环境变量**:将仓库内的 `tagui\src` 目录添加到系统 PATH,使 `tagui` 命令全局可用。
+5. **配置环境变量**:将仓库内的 `tagui\src` 目录添加到系统 PATH,使 `tagui` 命令全局可用。
 
    **GUI 方式**(永久生效,重启终端后生效):
    - 打开"系统属性" → "环境变量" → "系统变量"中的 `Path` → "新建"
@@ -88,7 +93,7 @@ wechat-soss-scraper/
    tagui --version   # 验证
    ```
 
-5. 打开微信并登录(**保持窗口可见,不要最小化到托盘,且系统缩放必须为 100%**)。
+6. 打开微信并登录(**保持窗口可见,不要最小化到托盘,且系统缩放必须为 100%**)。
 
 ---
 
@@ -195,6 +200,7 @@ python wx_all.py --phase close
 |---|---|
 | `--phase env` 报缺依赖 | `cd tagui/flows/wx && pip install -r requirements.txt` |
 | 报缺模板素材 | 检查 `tagui/flows/wx/` 下 6 个 png 是否齐全,缺失时重新截图 |
+| 报 `MSVCR110.dll 缺失/not found` | 新电脑未装 VC++ 2012 运行库。安装 "Microsoft Visual C++ 2012 Redistributable" 的 x86 与 x64 版(x64 系两个都装),见"安装"第 2 步 |
 | 找不到 tagui.cmd | 确认 `flows/wx/` 位于 `tagui/` 下(启动器自动向上两级定位,勿移动目录层级) |
 | 某步模板匹配失败(微信改版) | 重新截取对应控件图覆盖原 png |
 | 点击位置偏移 | 运行 `--phase env` 确认 DPI=True;删除 `scroll_calib.json`、`layout.json` 让其重新校准 |
