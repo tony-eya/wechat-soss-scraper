@@ -1,21 +1,36 @@
 # ---- 抓取结果与运行数据(不入库) ----
-tagui/flows/wx/articles.json
-tagui/flows/wx/scroll_calib.json
-tagui/flows/wx/input_field_cache.json
-tagui/flows/wx/article_cache.json
-tagui/flows/wx/layout.json
-tagui/flows/wx/scroll_state.json
-tagui/flows/wx/search_result.json
-tagui/flows/wx/workdir.txt
+tagui/flows/wx/article/articles.json
+tagui/flows/wx/article/scroll_calib.json
+tagui/flows/wx/article/input_field_cache.json
+tagui/flows/wx/article/article_cache.json
+tagui/flows/wx/article/layout.json
+tagui/flows/wx/article/scroll_state.json
+tagui/flows/wx/article/search_result.json
+tagui/flows/wx/article/workdir.txt
 
 # ---- 运行时截图/诊断(不入库) ----
-tagui/flows/wx/tag_all_*.png
-tagui/flows/wx/scroll_probe_*.png
-tagui/flows/wx/*_stdout.log
-tagui/flows/wx/_tag_stdout.log
+tagui/flows/wx/article/tag_all_*.png
+tagui/flows/wx/article/scroll_probe_*.png
+tagui/flows/wx/article/*_stdout.log
+tagui/flows/wx/article/_tag_stdout.log
 
 # ---- 运行时临时目录 ----
-tagui/flows/wx/.tasks/
+tagui/flows/wx/article/.tasks/
+
+# ---- 类别源码目录均忽略运行时产物(article/sticker/video 等) ----
+tagui/flows/wx/*/articles.json
+tagui/flows/wx/*/scroll_calib.json
+tagui/flows/wx/*/input_field_cache.json
+tagui/flows/wx/*/article_cache.json
+tagui/flows/wx/*/layout.json
+tagui/flows/wx/*/scroll_state.json
+tagui/flows/wx/*/search_result.json
+tagui/flows/wx/*/workdir.txt
+tagui/flows/wx/*/tag_all_*.png
+tagui/flows/wx/*/scroll_probe_*.png
+tagui/flows/wx/*/*_stdout.log
+tagui/flows/wx/*/_tag_stdout.log
+tagui/flows/wx/*/.tasks/
 
 # ---- Python ----
 __pycache__/
@@ -48,3 +63,10 @@ tagui/src/tagui_r/tagui_r_windows.log
 # ---- 临时目录 ----
 *.tmp
 temp/
+
+# ---- 个人素材/无关文件(不入库,README 图片用在线链接) ----
+个人微信.png
+个人收款码.png
+*.personal.png
+个人*.*
+tagui/src/sikulix/*.jar

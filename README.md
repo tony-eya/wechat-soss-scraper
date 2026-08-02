@@ -55,7 +55,7 @@
 #    官方搜索 "Visual C++ Redistributable for Visual Studio 2012" 下载
 #    验证: .\tagui\src\unx\grep.exe --version 不再报 dll 缺失
 # 3. 安装 Python 依赖
-cd tagui/flows/wx
+cd tagui/flows/wx/article
 pip install -r requirements.txt
 ```
 
@@ -74,7 +74,7 @@ tagui --version   # 验证
 **第三步：开始抓取**
 
 ```bash
-cd tagui/flows/wx
+cd tagui/flows/wx/article
 
 # 环境自检（首次运行建议先跑）
 python wx_article.py --phase env
@@ -114,20 +114,21 @@ wechat-soss-scraper/
 │   ├── src/                  # TagUI 运行时（tagui.cmd / php / node / sikulix）
 │   └── flows/
 │       └── wx/               # ★ 微信抓取模块（本项目全部业务代码）
-│           ├── wx_article.py # 一体化状态机（文章类别脚本，全部逻辑）
-│           ├── tag_all.tag   # TagUI 流程入口
-│           ├── requirements.txt
-│           ├── home.png      # 微信侧边栏"搜一搜"图标模板
-│           ├── wx_search.png # 微信主窗口顶部搜索框模板
-│           ├── input_field.png  # 搜一搜窗口搜索框模板
-│           ├── article.png   # "文章"标签模板
-│           ├── more.png      # 详情页"..."更多按钮模板
-│           ├── copy_url.png  # "复制链接"菜单模板
-│           ├── articles.json # 抓取结果（自动生成）
-│           ├── input_field_cache.json # 搜索框坐标缓存（自动生成）
-│           ├── article_cache.json     # "文章"标签坐标缓存（自动生成）
-│           ├── scroll_calib.json      # 滚轮行距校准缓存（自动生成）
-│           └── layout.json   # 列表布局学习缓存（自动生成）
+│           └── article/      # ★ 公众号「文章」类别（按类别分子目录，未来可扩展 sticker/ 贴图、video/ 视频号 等）
+│               ├── wx_article.py # 一体化状态机（文章类别脚本，全部逻辑）
+│               ├── tag_all.tag   # TagUI 流程入口
+│               ├── requirements.txt
+│               ├── home.png      # 微信侧边栏"搜一搜"图标模板
+│               ├── wx_search.png # 微信主窗口顶部搜索框模板
+│               ├── input_field.png  # 搜一搜窗口搜索框模板
+│               ├── article.png   # "文章"标签模板
+│               ├── more.png      # 详情页"..."更多按钮模板
+│               ├── copy_url.png  # "复制链接"菜单模板
+│               ├── articles.json # 抓取结果（自动生成，已 gitignore）
+│               ├── input_field_cache.json # 搜索框坐标缓存（自动生成，已 gitignore）
+│               ├── article_cache.json     # "文章"标签坐标缓存（自动生成，已 gitignore）
+│               ├── scroll_calib.json      # 滚轮行距校准缓存（自动生成，已 gitignore）
+│               └── layout.json   # 列表布局学习缓存（自动生成，已 gitignore）
 └── README.md
 ```
 
@@ -206,13 +207,13 @@ wechat-soss-scraper/
 <details>
 <summary><b>报缺依赖</b></summary>
 
-`cd tagui/flows/wx && pip install -r requirements.txt`
+`cd tagui/flows/wx/article && pip install -r requirements.txt`
 </details>
 
 <details>
 <summary><b>报缺模板素材</b></summary>
 
-检查 `tagui/flows/wx/` 下 6 个 png 是否齐全，缺失时重新截图。
+检查 `tagui/flows/wx/article/` 下 6 个 png 是否齐全，缺失时重新截图。
 </details>
 
 <details>
@@ -224,7 +225,7 @@ wechat-soss-scraper/
 <details>
 <summary><b>找不到 tagui.cmd</b></summary>
 
-确认 `flows/wx/` 位于 `tagui/` 下（启动器自动向上两级定位，勿移动目录层级）。
+确认 `flows/wx/article/` 位于 `tagui/` 下（启动器自动向上三级定位 TagUI 根目录，勿移动目录层级）。
 </details>
 
 <details>
