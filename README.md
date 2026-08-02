@@ -38,6 +38,7 @@
 | Windows | Win10 / Win11（实测） |
 | Python | 3.9+（`pip install -r requirements.txt`） |
 | Node.js | TagUI 运行依赖 |
+| JDK | **17+（必须）**。TagUI 的 SikuliX 图像识别引擎依赖 Java 运行，缺失时 `click xx.png` 会报找不到 java / 无法启动 SikuliX。安装后配置 `JAVA_HOME` 环境变量并加入 PATH，`java -version` 验证 |
 | VC++ 2012 运行库 | **必须**。TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 exe，依赖 `MSVCR110.dll`。缺失时运行报 `MSVCR110.dll not found` |
 | 微信 | 桌面版，已登录，**保持窗口可见** |
 
@@ -47,14 +48,23 @@
 
 ## 快速开始
 
+> ### ⚠️ 使用前必读（两条硬性前提）
+>
+> **① 必须替换 PNG 素材库**：仓库自带的 `*.png` 是作者本机微信界面的截图，**只保证在作者的微信版本 / 皮肤 / 窗口布局下工作**。你的微信可能因版本、深浅色主题、自定义皮肤、图标改版而**无法匹配**（`--phase env` 会报缺素材 / 模板匹配失败）。请按下方「素材模板说明」一节，用你自己的微信截图**逐一替换** `tagui/flows/wx/article/` 下的 6 个 png 后再使用。
+>
+> **② 系统窗口缩放必须是 100%**：Windows "显示设置 → 缩放与布局" 必须为 **100%**。125% / 150% / 175% 缩放会使截图与点击坐标不一致，模板匹配和 OCR 解析**全面失效**。若主屏分辨率高必须用缩放，请把微信窗口拖到一台独立设置 100% 缩放的副屏再执行。更换缩放后删除 `scroll_calib.json`、`layout.json`、`input_field_cache.json`、`article_cache.json` 重新校准。
+
 **第一步：安装依赖**
 
 ```bash
 # 1. 安装 Python 3.9+ 与 Node.js
-# 2. 安装 Microsoft Visual C++ 2012 Redistributable(x86 & x64)
+# 2. 安装 JDK 17+（TagUI 图像识别依赖 Java）
+#    官方搜索 "JDK 17 download"（Oracle / Temurin 均可），配置 JAVA_HOME 并加入 PATH
+#    验证: java -version 显示 17 及以上
+# 3. 安装 Microsoft Visual C++ 2012 Redistributable(x86 & x64)
 #    官方搜索 "Visual C++ Redistributable for Visual Studio 2012" 下载
 #    验证: .\tagui\src\unx\grep.exe --version 不再报 dll 缺失
-# 3. 安装 Python 依赖
+# 4. 安装 Python 依赖
 cd tagui/flows/wx/article
 pip install -r requirements.txt
 ```
@@ -118,12 +128,12 @@ wechat-soss-scraper/
 │               ├── wx_article.py # 一体化状态机（文章类别脚本，全部逻辑）
 │               ├── tag_all.tag   # TagUI 流程入口
 │               ├── requirements.txt
-│               ├── home.png      # 微信侧边栏"搜一搜"图标模板
-│               ├── wx_search.png # 微信主窗口顶部搜索框模板
-│               ├── input_field.png  # 搜一搜窗口搜索框模板
-│               ├── article.png   # "文章"标签模板
-│               ├── more.png      # 详情页"..."更多按钮模板
-│               ├── copy_url.png  # "复制链接"菜单模板
+│               ├── home.png      # 侧边栏「搜一搜」图标模板（需自行截图替换）
+│               ├── wx_search.png # 主窗口顶部搜索框模板（需自行截图替换，回退方案用）
+│               ├── input_field.png  # 搜一搜窗口搜索框模板（需自行截图替换）
+│               ├── article.png   # 「文章」标签模板（需自行截图替换）
+│               ├── more.png      # 详情页「…」按钮模板（需自行截图替换）
+│               ├── copy_url.png  # 「复制链接」菜单项模板（需自行截图替换）
 │               ├── articles.json # 抓取结果（自动生成，已 gitignore）
 │               ├── input_field_cache.json # 搜索框坐标缓存（自动生成，已 gitignore）
 │               ├── article_cache.json     # "文章"标签坐标缓存（自动生成，已 gitignore）
@@ -135,6 +145,25 @@ wechat-soss-scraper/
 > **图标出处**：所有 `.png` 模板素材均为微信桌面版界面控件的局部截图（20~90 像素），仅用于 OpenCV 模板匹配定位，版权归原应用（腾讯微信）所有。如微信改版导致某步定位失败，重新截取对应控件图覆盖原 png 即可。
 >
 > **窗口缩放大小**：**仅支持 100% 系统缩放**（Windows "显示设置" → "缩放与布局" → "100%"）。125%/150%/175% 缩放会导致截图坐标与实际渲染像素不一致，模板匹配和 OCR 解析全面失效，整个流程无法运行。若主屏高分辨率必须用缩放，请将微信窗口拖到一台独立设置 100% 缩放的副屏再执行抓取。首次使用或更换缩放后，删除 `scroll_calib.json`、`layout.json`、`input_field_cache.json`、`article_cache.json` 让程序重新校准。
+
+---
+
+## 素材模板说明（PNG）
+
+> **为什么必须自己截图替换**：所有 `.png` 都是作者本机微信界面控件的**局部截图**（20~90 像素），仅用于 OpenCV 模板匹配定位。微信版本更新、深浅色主题、自定义皮肤、DPI 缩放都会改变控件外观，**作者机器的截图在你的微信上几乎必然匹配失败**。所以拿到仓库后第一步就是用**你自己的微信、100% 缩放**下重新截图替换（用系统截图工具 `Win+Shift+S` 截取对应控件即可，无需精确尺寸，会自动缩放匹配）。
+>
+> 版权归原应用（腾讯微信）所有，仅用于定位，请勿商用。
+
+| 文件名 | 控件 | 用途 | 截图要求 |
+|---|---|---|---|
+| `home.png` | 微信主窗口左侧侧边栏的「搜一搜」放大镜图标 | 进入搜一搜入口 | 只截图标本身（放大镜图形），不含文字；匹配失败时程序自动回退「顶部搜索框 → 搜索网络结果」方案 |
+| `wx_search.png` | 微信主窗口**顶部**的搜索输入框 | 回退方案中点击顶部搜索框 | 截搜索框左端（含"搜索"占位文字区域即可）；若 `home.png` 匹配成功则用不到 |
+| `input_field.png` | 搜一搜窗口顶部的搜索输入框 | 定位后自动粘贴公众号名称并回车 | 截输入框左端一小段（含内部图标/占位符），需与 `wx_search.png` 区分（这是搜一搜窗口，不是主窗口） |
+| `article.png` | 搜一搜结果页顶部的「文章」标签 | 切换到文章列表页 | 截标签文字"文章"及其高亮态区域；若你的微信标签带图标，把图标一并截入 |
+| `more.png` | 文章详情页右上角的「…」更多按钮 | 点开后出现复制链接菜单 | 只截"…"三个点按钮本体，背景尽量纯色 |
+| `copy_url.png` | 更多菜单弹层中的「复制链接」菜单项 | 复制当前文章 URL | 截菜单项文字"复制链接"一行（含左侧图标可选）；注意是弹出的**菜单**，不是页面内元素 |
+
+> **替换步骤**：截好图后，把新 png 覆盖到 `tagui/flows/wx/article/` 下同名文件 → 删除 `input_field_cache.json` / `article_cache.json`（否则仍用旧坐标）→ 运行 `python wx_article.py --phase env` 验证 `templates=6` 且无报错 → 开始抓取。如某步仍匹配失败，按报错提示重截对应控件。微信改版导致某步失效时同理，重新截取覆盖即可。
 
 ---
 
