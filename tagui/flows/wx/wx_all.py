@@ -306,9 +306,8 @@ def open_soss_from_main(main_hwnd, keyword=''):
 
     soss = find_wx_window()
     if soss:
-        # 最小化微信主窗口，避免遮挡 SOSS 窗口
-        user32.ShowWindow(main_hwnd, 6)  # SW_MINIMIZE
-        time.sleep(0.3)
+        # 让 SOSS 前台优先(先直接置前,失败才最小化主窗口,避免"弹出又隐藏")
+        _force_soss_to_foreground(main_hwnd, soss)
     return soss
 
 
@@ -347,17 +346,20 @@ def close_window(hwnd):
 
 
 def _force_soss_to_foreground(main_hwnd, soss_hwnd):
-    """同时执行三件事确保 SOSS 窗口完全在前台(解决搜索框路径打开 SOSS 后主窗口跳回的问题):
-    1. SW_MINIMIZE 微信主窗口，彻底剥夺其焦点资格；
-    2. AttachThreadInput + BringWindowToTop 提升 Z 序；
-    3. SetForegroundWindow 抢占前台锁。"""
-    # Step 1: 最小化主窗口
-    user32.ShowWindow(main_hwnd, 6)                   # SW_MINIMIZE
-    time.sleep(0.3)
-
-    # Step 2~3: 提开 S OSS 窗口到最前并抢前台
+    """确保 SOSS 窗口完全在前台(解决搜索框路径打开 SOSS 后主窗口跳回的问题)。
+    优先级: 先直接提升 SOSS 前台(不最小化主窗口,避免无谓的"弹出又隐藏");
+    仅当直接置前失败(主窗口抢焦点)时才最小化主窗口兜底。
+    手段: AttachThreadInput + BringWindowToTop 提升 Z 序 + SetForegroundWindow 抢前台锁。"""
+    # Step 1: 先直接尝试把 SOSS 带到前台(不碰主窗口)
     if _force_foreground(soss_hwnd):
         print('SOSS_ACTIVATED_OK')
+        return
+
+    # Step 2 (兜底): 直接置前失败 -> 最小化主窗口剥夺其焦点资格,再抢一次
+    user32.ShowWindow(main_hwnd, 6)                   # SW_MINIMIZE
+    time.sleep(0.3)
+    if _force_foreground(soss_hwnd):
+        print('SOSS_ACTIVATED_OK (主窗口已最小化兜底)')
     else:
         print('SOSS_ACTIVATION_PARTIAL')
 
@@ -915,46 +917,86 @@ def _load_layout():
         return None
 
 
+def _probe_window_rect():
+    """探测当前可用窗口(SOSS 优先,其次微信主窗口)的尺寸。
+    返回 (w, h);无窗口可探测时返回 (0, 0)。
+    用于布局兜底按窗口比例计算,避免绝对像素在不同分辨率/窗口尺寸下失效。"""
+    hwnd = find_wx_window() or find_weixin_main()
+    if hwnd:
+        l, t, r, b = win_rect(hwnd)
+        return max(r - l, 1), max(b - t, 1)
+    return 0, 0
+
+
+def _layout_fallback(kind):
+    """布局兜底值: 优先按当前窗口尺寸比例计算,窗口不可探测时回退绝对常量。
+    kind: 'col_split' -> 双列分界 ≈ 窗口宽 37.5%(等价 720/1920);
+          'list_top'  -> 列表起始 ≈ 窗口高 26%(等价 250/960)。"""
+    w, h = _probe_window_rect()
+    if kind == 'col_split' and w:
+        return int(w * 0.375)
+    if kind == 'list_top' and h:
+        return int(h * 0.26)
+    return _DEFAULT_COL_SPLIT if kind == 'col_split' else _DEFAULT_LIST_MIN_Y
+
+
 def get_col_split():
-    """当前左右列分界 x(窗口内相对坐标)。优先 layout.json 学习值,否则兜底常量。"""
+    """当前左右列分界 x(窗口内相对坐标)。优先 layout.json 学习值,
+    否则按当前窗口宽度比例兜底(双列瀑布流分界 ≈ 37.5% 窗口宽)。"""
     global _LAYOUT
     if _LAYOUT is None:
         _LAYOUT = _load_layout() or {}
-    return int(_LAYOUT.get('col_split') or _DEFAULT_COL_SPLIT)
+    return int(_LAYOUT.get('col_split') or _layout_fallback('col_split'))
 
 
 def get_list_min_y():
-    """当前列表起始 y(窗口内相对坐标)。优先 layout.json 学习值,否则兜底常量。"""
+    """当前列表起始 y(窗口内相对坐标)。优先 layout.json 学习值,
+    否则按当前窗口高度比例兜底(列表起始 ≈ 26% 窗口高)。"""
     global _LAYOUT
     if _LAYOUT is None:
         _LAYOUT = _load_layout() or {}
-    return int(_LAYOUT.get('list_top') or _DEFAULT_LIST_MIN_Y)
+    return int(_LAYOUT.get('list_top') or _layout_fallback('list_top'))
 
 
-def _learn_layout(items):
+def _learn_layout(items, anchor_y=None):
     """从首屏 OCR 结果自动学习列表布局,写入 layout.json 缓存。
     1) col_split: 取所有文本 x0 分布的最大间隙中点(左右列分界);
     2) list_top:  取最顶部文章标题的 cy,下修一个余量(避开标签栏/搜索区)。
-    学习失败时保持原值,调用方继续用兜底常量。"""
+    anchor_y: 点击"文章"标签时鼠标停留位置的窗口内相对 y(标签栏 y 即
+    列表起始锚点,最准)。优先用 anchor_y + _TAB_BAR_MARGIN 作为 list_top;
+    无锚点才用 OCR 推断(首条标题 cy - 30)。
+    学习失败时保持原值,调用方继续用兜底(按窗口比例)。
+    所有内部阈值均按 OCR 覆盖范围(w_est/h_est)比例化,不依赖绝对像素。"""
     global _LAYOUT
     cur = _load_layout() or {}
+    # 估算窗口尺寸: OCR 覆盖范围近似窗口内容区(绝对像素阈值按此比例化)
+    h_est = max((cy for cy, _, _, _ in items), default=0) or 960
+    w_est = max((x1 for _, _, x1, _ in items), default=0) or 1200
     xs = sorted(x0 for _, x0, _, _ in items if x0 > 0)
     if len(xs) >= 2:
-        # 找相邻 x0 的最大间隙(双列布局: 左列约 280,右列约 970)
+        # 找相邻 x0 的最大间隙(双列布局: 左列约 28%宽,右列约 75%宽)
         max_gap, split = 0, None
         for i in range(len(xs) - 1):
             gap = xs[i + 1] - xs[i]
             if gap > max_gap:
                 max_gap, split = gap, (xs[i] + xs[i + 1]) / 2
-        if split and max_gap > 300:   # 间隙足够大才视为列分界
+        if split and max_gap > w_est * 0.25:   # 间隙足够大(≥25%窗宽)才视为列分界
             cur['col_split'] = int(split)
-    # 列表顶部: 找第一个看起来是文章标题的行(非标签栏/噪音)
-    tops = [cy for cy, x0, x1, t in items
-            if cy > 100 and not _is_noise_line(t)
-            and not ('阅读' in t or '赞' in t)
-            and x1 - x0 > 60]   # 标题行一般较宽
-    if tops:
-        cur['list_top'] = max(100, int(tops[0]) - 30)
+    # 列表顶部: 优先用点击"文章"标签的鼠标位置(标签栏 y 即列表起始锚点)
+    top_cy = int(h_est * 0.08)      # 顶部 8% 视为标签栏/搜索区,标题须在其下
+    if anchor_y is not None and anchor_y > 0:
+        cur['list_top'] = int(anchor_y) + _TAB_BAR_MARGIN
+        print('LAYOUT_LIST_TOP_ANCHOR=%d (文章标签 y=%d + margin=%d)'
+              % (cur['list_top'], int(anchor_y), _TAB_BAR_MARGIN))
+    else:
+        # 无锚点(非点击路径/锚点异常): OCR 推断最顶部标题位置
+        min_w = int(w_est * 0.12)   # 标题行一般明显宽于标签(≥12%窗宽)
+        tops = [cy for cy, x0, x1, t in items
+                if cy > top_cy and not _is_noise_line(t)
+                and not ('阅读' in t or '赞' in t)
+                and x1 - x0 > min_w]
+        if tops:
+            cur['list_top'] = max(top_cy, int(tops[0]) - 30)
     if cur.get('col_split') or cur.get('list_top'):
         write_json(LAYOUT_CALIB_FILE, {
             'col_split': cur.get('col_split'),
@@ -1015,9 +1057,29 @@ def get_clipboard():
     return pyperclip.paste() or ''
 
 
-def set_clipboard(text):
+def set_clipboard(text, tries=10, delay=0.5):
+    """写入剪贴板,带重试。微信(WeChatAppEx)/其他进程可能持有剪贴板
+    (OpenClipboard 失败,WinError 0),立即重试常失败;反复尝试+清空可恢复。
+    返回是否成功;全部失败抛出异常(调用方需处理)。"""
     import pyperclip
+    import ctypes
+    user32 = ctypes.windll.user32
+    for i in range(tries):
+        try:
+            pyperclip.copy(text)
+            return True
+        except Exception:
+            # 尝试强制清空(EmptyClipboard 需先 OpenClipboard 成功)
+            try:
+                if user32.OpenClipboard(0):
+                    user32.EmptyClipboard()
+                    user32.CloseClipboard()
+            except Exception:
+                pass
+            time.sleep(delay)
+    # 最后一次直接抛
     pyperclip.copy(text)
+    return True
 
 
 def log(msg):
@@ -1124,6 +1186,11 @@ def _is_noise_line(t):
     if ('原创内容' in t or '视频号：' in t or t.startswith('视频号')
             or re.search(r'篇原创', t)):
         return True
+    # 账号简介: 公众号简介是完整陈述句(以句号结尾 + 标点密集 + 长度偏长),
+    # 而文章标题通常较短且不带句号/无标点结构。简介常被 OCR 拆成多行,
+    # 这里按"句号结尾的完整陈述句"特征识别,避免简介抢占 pending_title。
+    if ('。' in t or '；' in t) and ('，' in t or '、' in t) and len(t) >= 12:
+        return True
     # 标签栏行: 纯标签词组合(OCR 可能拆成 "全部贴图" / "文章视频号" 等块)
     if sum(1 for w in TAB_WORDS if w in t) >= 3:
         return True
@@ -1185,12 +1252,32 @@ def _tab_bar_y(ocr_items):
     """标签栏行 y(窗口内相对坐标): '文章/全部贴图/视频号' 等标签词组合行。
     搜一搜账号头部(简介/关注/私信/标签栏)整体位于文章列表之上,标签栏行是
     头部与列表的分界锚点。滚动后头部可能仍残留在顶部,故每次 OCR 都重新锚定。
+    OCR 常把标签栏拆成多个独立词块('全部' '贴图' '文章' '视频号' 各成一块),
+    单块只含 1 个标签词导致按行判断永远不满足 >=2。故先按 y 聚类合并同行的
+    词块,再统计合并文本中的标签词数(>=2 即视为标签栏,含 '文章' 优先)。
     返回 cy 或 None。"""
+    if not ocr_items:
+        return None
+    # 按 y 聚类(±10px 视为同行): 合并 OCR 拆散的标签栏词块
+    rows = []  # [{'cy': float, 'text': str}]
     for cy, x0, x1, t in ocr_items:
         if not t:
             continue
-        if _is_noise_line(t) and sum(1 for w in TAB_WORDS if w in t) >= 2:
-            return cy
+        for row in rows:
+            if abs(row['cy'] - cy) <= 10:
+                row['text'] += t
+                row['cy'] = (row['cy'] + cy) / 2
+                break
+        else:
+            rows.append({'cy': float(cy), 'text': t})
+    rows.sort(key=lambda r: r['cy'])
+    for row in rows:
+        txt = row['text']
+        if not _is_noise_line(txt):
+            continue
+        tag_cnt = sum(1 for w in TAB_WORDS if w in txt)
+        if tag_cnt >= 2 or ('文章' in txt and tag_cnt >= 1):
+            return row['cy']
     return None
 
 
@@ -1702,6 +1789,14 @@ def flow_begin():
     _end = _cfg.get('end')
     _MORE_TPL = os.path.join(WX_DIR, 'more.png')
     _COPY_URL_TPL = os.path.join(WX_DIR, 'copy_url.png')
+    # fallback 路径: main() 已通过 open_soss_from_main 打开并激活 SOSS。
+    # 此时若再 preflight_main(会 _force_foreground 微信主窗口),会导致窗口
+    # 焦点从搜一搜跳回微信(用户可见的"弹出又隐藏/来回跳"),且 fallback 根本不
+    # 需要 home.png 侦查 -> 直接跳过主窗口侦查,保持 SOSS 在前台。
+    if find_wx_window():
+        print('FLOW_BEGIN SOSS_ALREADY_OPEN - skip main preflight')
+        return _flow_json(True, phase='begin', home=None,
+                          recon=None)
     mh = find_weixin_main()
     if not mh:
         print('ERROR - NO_WECHAT_MAIN_WINDOW')
@@ -1778,10 +1873,12 @@ def flow_articles():
         print('ERROR - ARTICLE_TEMPLATE_NOT_FOUND')
         raise SystemExit(1)
     time.sleep(SLEEP_SEARCH_RESULT)
-    # 解析首屏列表并落库;同时学习列表布局供后续滚动复用
+    # 解析首屏列表并落库;同时学习列表布局供后续滚动复用。
+    # 锚点: 点击"文章"标签后鼠标正停在标签上,该 y(窗口内相对)即列表起始。
+    art_y = int(art[1]) - t          # 绝对屏幕 y -> 窗口内相对 y
     shot, _ = screen_shot(hwnd, os.path.join(WX_DIR, 'tag_all_articles.png'))
     res_items = ocr_image(shot)
-    _learn_layout(res_items)
+    _learn_layout(res_items, anchor_y=art_y)
     items = parse_list_items(res_items, min_y=get_list_min_y())
     print('VISIBLE_ITEMS=%d' % len(items))
     # tag1 分析列表时动态计算单篇报告高度并缓存,滚动(tag2)直接复用
@@ -1969,10 +2066,12 @@ def _step_search():
         print('ERROR - ARTICLE_TEMPLATE_NOT_FOUND')
         raise SystemExit(1)
     time.sleep(SLEEP_SEARCH_RESULT)
-    # 5) 解析首屏列表并落库;同时学习列表布局(col_split/min_y)供后续滚动复用
+    # 5) 解析首屏列表并落库;同时学习列表布局(col_split/min_y)供后续滚动复用。
+    #    锚点: 点击"文章"标签后鼠标正停在标签上,该 y(窗口内相对)即列表起始。
+    art_y = int(art[1]) - t          # 绝对屏幕 y -> 窗口内相对 y
     shot, _ = screen_shot(hwnd, os.path.join(WX_DIR, 'tag_all_articles.png'))
     res_items = ocr_image(shot)
-    _learn_layout(res_items)
+    _learn_layout(res_items, anchor_y=art_y)
     items = parse_list_items(res_items, min_y=get_list_min_y())
     print('VISIBLE_ITEMS=%d' % len(items))
     for it in items[:5]:
@@ -2489,8 +2588,7 @@ def main():
     setup_work_dir()
     cfg = write_config(args.account, args.tab, args.start or None,
                        args.end or None, args.limit)
-    import pyperclip
-    pyperclip.copy(cfg['account'])
+    set_clipboard(cfg['account'])          # 带重试,微信可能持有剪贴板
     print('已复制公众号名称到剪贴板: %s' % cfg['account'])
 
     # ---- 前置侦查: 确认主窗口 home 图标可定位(原生 click 前的健康检查) ----
