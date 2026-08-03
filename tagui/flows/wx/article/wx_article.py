@@ -1209,6 +1209,14 @@ def parse_date(text):
     if re.search(r'\d+\s*(小时|分钟)前', text):
         return today_str()
 
+    # "今天" -> 今天。列表里日期形态:
+    #   a) 独立分组行: '今天'
+    #   b) 元信息行: '今天阅读2.3万赞585' (今天紧跟阅读)
+    # 用 (行首'今天' 且 后跟'阅读') 或 (整行==今天) 匹配, 避免误吞
+    # 文章标题(标题以"今天"开头但后跟内容字, 如'今天A股大涨')。
+    if text.strip() == '今天' or re.match(r'今天\s*阅读', text):
+        return today_str()
+
     # N天前
     m = re.search(r'(\d+)\s*天前', text)
     if m:
