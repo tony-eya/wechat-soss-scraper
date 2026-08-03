@@ -942,13 +942,15 @@ def get_input_field(hwnd, refresh=False):
                               'INPUT_FIELD', refresh=refresh)
 
 
-def get_article_coord(hwnd):
-    """获取"文章"标签(article.png)的绝对屏幕坐标(与 input_field 同缓存模式)。
+def get_article_coord(hwnd, refresh=True):
+    """获取"文章"标签(article.png)的绝对屏幕坐标。
 
-    缓存分区 article 按文章类型命名, 新机器首次自动侦查写缓存,
-    后续复用坐标点击, 免去 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
+    注意: "文章"标签位置随公众号而异(搜索结果页标签栏随公众号内容/标签
+    数量变化), 跨公众号的缓存坐标会点错位置。因此默认 refresh=True,
+    每次都强制用 article.png 模板在当前窗口实时侦查, 不使用跨公众号缓存。
+    (缓存 article 分区保留, 仅作为同公众号连续层试的提速, 但默认不信任它。)"""
     return get_template_coord(hwnd, 'article.png', 'article_tab',
-                              CACHE_ARTICLE, 'ARTICLE')
+                              CACHE_ARTICLE, 'ARTICLE', refresh=refresh)
 
 
 def preflight_main(main_hwnd=None):
@@ -1947,7 +1949,8 @@ def flow_articles():
     tag 不再原生 click article.png)。返回 JSON: {ok, ...}"""
     global _hwnd, _lt, _tt, _rt, _bt, _cfg, _account, _start, _end
     hwnd, l, t, r, b = _hwnd, _lt, _tt, _rt, _bt
-    # 点"文章"标签(缓存优先: 首次侦查写 cache.json 的 article 分区, 后续复用坐标;重试)
+    # 点"文章"标签: article.png 模板实时侦查(位置随公众号变化,
+    # get_article_coord 默认 refresh=True 强制重查, 不读跨公众号缓存坐标)
     art = None
     for attempt in range(RETRY_ARTICLE_TAB):
         art = get_article_coord(hwnd)
@@ -2155,12 +2158,11 @@ def _step_search():
     # 3) OCR 定位目标公众号并点击
     if not _locate_account(hwnd, l, t):
         raise SystemExit(1)
-    # 4) 点击"文章"标签(重试 RETRY_ARTICLE_TAB 次)
+    # 4) 点击"文章"标签: article.png 模板实时侦查(位置随公众号变化,
+    #    每次强制重查不读缓存; 重试 RETRY_ARTICLE_TAB 次)
     art = None
     for attempt in range(RETRY_ARTICLE_TAB):
-        art = click_template(hwnd, os.path.join(WX_DIR, 'article.png'),
-                             region=get_region('article_tab', hwnd),
-                             label='ARTICLE_TEMPLATE')
+        art = get_article_coord(hwnd)
         if art:
             break
         time.sleep(1.5)
