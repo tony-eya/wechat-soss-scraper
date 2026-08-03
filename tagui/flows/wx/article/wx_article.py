@@ -2710,6 +2710,17 @@ def main():
     set_clipboard(cfg['account'])          # 带重试,微信可能持有剪贴板
     print('已复制公众号名称到剪贴板: %s' % cfg['account'])
 
+    # ---- 清理残留搜一搜窗口: 每次运行必须从"点击入口"完整流程开始 ----
+    # 若上次运行异常中断/用户手动打开, 搜一搜窗口可能仍开着; 若直接复用,
+    # flow_begin 会判定 SOSS_ALREADY_OPEN 而跳过点击入口(home.png/搜索框),
+    # 导致流程建立在未知状态的旧窗口上。先关闭残留窗口, 确保从微信主窗口
+    # 重新走完整入口链路(点击入口 -> 进入搜一搜 -> 搜索 -> 抓取)。
+    stale = find_wx_window()
+    if stale:
+        close_window(stale)
+        print('SOSS_STALE_CLOSED hwnd=%s - 已关闭残留搜一搜窗口,重新走完整入口流程' % stale)
+        time.sleep(SLEEP_UI_MID)
+
     # ---- 前置侦查: 确认主窗口 home 图标可定位(原生 click 前的健康检查) ----
     main_hwnd = find_weixin_main()
     ok, found = preflight_main(main_hwnd)
