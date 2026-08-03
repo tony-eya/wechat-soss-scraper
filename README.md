@@ -22,10 +22,10 @@
 
 - **一键全流程** — 单条命令完成搜索、滚动、详情、取链、落库；中断后再次运行**自动去重续跑**，只补抓缺链接的文章
 - **跨机器 / 跨版本自适应** — **零硬编码坐标**：DPI、窗口尺寸、滚轮行距、列表布局全部由程序运行时**动态实测与自校准**，整个目录可直接拷贝到新电脑使用
-- **UI 智能定位** — 搜索框 / "文章"标签等关键控件用 **PNG 模板匹配 + 侦查缓存** 定位：首次运行自动侦查并缓存坐标（`input_field_cache.json` / `article_cache.json`），后续直接复用，**免去每次全屏扫描**；缓存绑定窗口位置，窗口移动自动重新侦查
+- **UI 智能定位** — 搜索框 / "文章"标签等关键控件用 **PNG 模板匹配 + 侦查缓存** 定位：首次运行自动侦查并缓存坐标（统一存 `cache.json`），后续直接复用，**免去每次全屏扫描**；缓存绑定窗口位置，窗口移动自动重新侦查
 - **OCR 按窗口比例自适应** — 滚动翻页、列表解析区域按窗口宽高比例生成，窗口大小随意
-- **滚动自校准** — 滚轮 1 格滚动像素数首屏动态实测并缓存（`scroll_calib.json`），换电脑 / 换鼠标无需改代码
-- **双列瀑布流容错** — 列表布局自动学习分列（`layout.json`）、行高实测、标题续行过滤，防止滚动后点错文章
+- **滚动自校准** — 滚轮 1 格滚动像素数首屏动态实测并缓存（`cache.json` 的 scroll 分区），换电脑 / 换鼠标无需改代码
+- **双列瀑布流容错** — 列表布局自动学习分列（`cache.json` 的 layout 分区）、行高实测、标题续行过滤，防止滚动后点错文章
 - **环境自检** — `--phase env` 一键检查依赖、模板素材、TagUI 启动器
 
 ---
@@ -56,7 +56,7 @@
 >
 > **① 必须替换 PNG 素材库**：仓库自带的 `*.png` 是作者本机微信界面的截图，**只保证在作者的微信版本 / 皮肤 / 窗口布局下工作**。你的微信可能因版本、深浅色主题、自定义皮肤、图标改版而**无法匹配**（`--phase env` 会报缺素材 / 模板匹配失败）。请按下方「素材模板说明」一节，用你自己的微信截图**逐一替换** `tagui/flows/wx/article/` 下的 6 个 png 后再使用。
 >
-> **② 系统窗口缩放必须是 100%**：Windows "显示设置 → 缩放与布局" 必须为 **100%**。125% / 150% / 175% 缩放会使截图与点击坐标不一致，模板匹配和 OCR 解析**全面失效**。若主屏分辨率高必须用缩放，请把微信窗口拖到一台独立设置 100% 缩放的副屏再执行。更换缩放后删除 `scroll_calib.json`、`layout.json`、`input_field_cache.json`、`article_cache.json` 重新校准。
+> **② 系统窗口缩放必须是 100%**：Windows "显示设置 → 缩放与布局" 必须为 **100%**。125% / 150% / 175% 缩放会使截图与点击坐标不一致，模板匹配和 OCR 解析**全面失效**。若主屏分辨率高必须用缩放，请把微信窗口拖到一台独立设置 100% 缩放的副屏再执行。更换缩放后删除 `cache.json` 重新校准。
 
 **第一步：安装依赖**
 
@@ -139,10 +139,7 @@ wechat-soss-scraper/
 │               ├── more.png      # 详情页「…」按钮模板（需自行截图替换）
 │               ├── copy_url.png  # 「复制链接」菜单项模板（需自行截图替换）
 │               ├── articles.json # 抓取结果（自动生成，已 gitignore）
-│               ├── input_field_cache.json # 搜索框坐标缓存（自动生成，已 gitignore）
-│               ├── article_cache.json     # "文章"标签坐标缓存（自动生成，已 gitignore）
-│               ├── scroll_calib.json      # 滚轮行距校准缓存（自动生成，已 gitignore）
-│               └── layout.json   # 列表布局学习缓存（自动生成，已 gitignore）
+│               └── cache.json    # 统一运行时缓存：滚轮校准/布局学习/控件坐标（自动生成，已 gitignore）
 └── README.md
 ```
 
@@ -163,7 +160,7 @@ wechat-soss-scraper/
 | `more.png` | 文章详情页右上角的「…」更多按钮 | 点开后出现复制链接菜单 | 只截"…"三个点按钮本体，背景尽量纯色 |
 | `copy_url.png` | 更多菜单弹层中的「复制链接」菜单项 | 复制当前文章 URL | 截菜单项文字"复制链接"一行（含左侧图标可选）；注意是弹出的**菜单**，不是页面内元素 |
 
-> **替换步骤**：截好图后，把新 png 覆盖到 `tagui/flows/wx/article/` 下同名文件 → 删除 `input_field_cache.json` / `article_cache.json`（没有则忽略，否则仍用旧坐标）→ 运行 `python wx_article.py --phase env` 验证 `templates=6` 且无报错 → 开始抓取。如某步仍匹配失败，按报错提示重截对应控件。微信改版导致某步失效时同理，重新截取覆盖即可。
+> **替换步骤**：截好图后，把新 png 覆盖到 `tagui/flows/wx/article/` 下同名文件 → 删除 `cache.json`（没有则忽略，否则仍用旧坐标）→ 运行 `python wx_article.py --phase env` 验证 `templates=6` 且无报错 → 开始抓取。如某步仍匹配失败，按报错提示重截对应控件。微信改版导致某步失效时同理，重新截取覆盖即可。
 
 ---
 
@@ -190,8 +187,8 @@ wechat-soss-scraper/
 | UI 定位 | OpenCV 模板匹配（`click_template` / `find_template`），失败按窗口比例回退 |
 | 侦查缓存 | `get_template_coord`：搜索框 / "文章"标签首次侦查写缓存，窗口未动则直接复用坐标 + **SendInput 真实点击**（微信 UI 只响应真实输入），免去 TagUI 原生 SikuliX 全屏扫描（0.5-2s） |
 | OCR 区域 | `get_region(kind, hwnd)` 按窗口宽高比例生成，替代旧版 1920 宽写死的区域常量 |
-| 滚轮校准 | `_calibrate_scroll_px`：滚动前后 OCR 锚定同一标题，取位移中位数 → 缓存 `scroll_calib.json` |
-| 布局学习 | `_learn_layout`：首屏 OCR 的 x0 分布最大间隙 → `col_split`；最顶标题 y → `list_top`，缓存 `layout.json` |
+| 滚轮校准 | `_calibrate_scroll_px`：滚动前后 OCR 锚定同一标题，取位移中位数 → 缓存 `cache.json` 的 scroll 分区 |
+| 布局学习 | `_learn_layout`：首屏 OCR 的 x0 分布最大间隙 → `col_split`；最顶标题 y → `list_top`，缓存 `cache.json` 的 layout 分区 |
 | 行高测量 | `_measure_item_height`：同列相邻条目 cy 差中位数（瀑布流双列需分列） |
 | 防点错 | 滚动前后收集"标题续行"文本并过滤；列表稳定探测（连续两次 OCR 一致才点击） |
 
@@ -264,7 +261,7 @@ TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 
 <details>
 <summary><b>点击位置偏移</b></summary>
 
-运行 `--phase env` 确认 DPI=True；删除 `scroll_calib.json`、`layout.json`、`input_field_cache.json`、`article_cache.json` 让其重新校准。
+运行 `--phase env` 确认 DPI=True；删除 `cache.json` 让其重新校准。
 </details>
 
 <details>

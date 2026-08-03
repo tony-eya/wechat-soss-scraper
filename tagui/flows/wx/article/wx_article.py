@@ -148,30 +148,22 @@ RETRY_COPY_URL = 3       # 每轮点更多后查找"复制链接"重试次数
 RETRY_DETAIL_ROUNDS = 2  # 每篇文章最多进详情页轮数(失败关标签重进)
 RETRY_ARTICLE_TAB = 3    # 点击"文章"标签重试次数
 
+# ---- 统一运行时缓存(滚动校准 / 布局学习 / 控件坐标侦查 合并到单一 cache.json) ----
+# 原 scroll_calib.json / layout.json / input_field_cache.json / article_cache.json
+# 四份缓存统一合并为一份 cache.json, 按分区键管理(读改写互不覆盖)。
+# 持久化到稳定目录(真实 WX_DIR),跨运行复用;TagUI 子进程从临时任务目录
+# import 本文件副本,其 __file__ 指向任务目录,故用 WX_SOURCE_DIR 环境变量指回真实
+# 源码目录(见 run_tag),否则每次运行新任务目录校准缓存恒为空,每次都重新校准。
+CACHE_FILE = os.path.join(
+    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'cache.json')
+CACHE_SCROLL = 'scroll'          # 滚轮校准: px_per_click / measured_at / item_height
+CACHE_LAYOUT = 'layout'          # 列表布局学习: col_split / list_top / learned_at
+CACHE_INPUT_FIELD = 'input_field'  # 搜索框坐标侦查: window_rect / coord / recon_at
+CACHE_ARTICLE = 'article'        # "文章"标签坐标侦查: window_rect / coord / recon_at
+
 # ---- tag2 滚动: 按"篇数"动态滚动(每轮滚 N 篇文章高度) ----
 SCROLL_ITEMS_PER_PAGE = 4     # 每轮滚动滚过多少篇文章
 SCROLL_PX_PER_CLICK = 112.0   # 滚轮 1 格移动像素的兜底估算(校准失败时用)
-SCROLL_CALIB_FILE = os.path.join(
-    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'scroll_calib.json')
-# 校准缓存持久化到稳定目录(真实 WX_DIR),跨运行复用;TagUI 子进程从临时任务目录
-# import 本文件副本,其 __file__ 指向任务目录,故用 WX_SOURCE_DIR 环境变量指回真实
-# 源码目录(见 run_tag),否则每次运行新任务目录校准缓存恒为空,每次都重新校准。
-
-# ---- 动态布局校准缓存 ----
-LAYOUT_CALIB_FILE = 'layout.json'   # 列表布局学习结果(min_y / col_split / list_top)
-
-# ---- input_field(搜索框)侦查缓存 ----
-# 与 scroll_calib 同模式: 坐标是绝对屏幕坐标, 绑定窗口 rect 一起缓存。
-# 首次(或窗口移动/无缓存)用模板侦查写缓存, 后续直接复用坐标 SendInput 点击,
-# 免去每次 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。缓存写到真实源码目录,
-# 经 WX_SOURCE_DIR 跨运行复用(见 run_tag), 新机器首次自动侦查 -> 开源安全。
-INPUT_FIELD_CACHE_FILE = os.path.join(
-    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'input_field_cache.json')
-
-# ---- article("文章"标签)侦查缓存 ----
-# 同 input_field 模式: 首次侦查写缓存, 后续复用坐标点击, 免去 SikuliX 全屏扫描。
-ARTICLE_CACHE_FILE = os.path.join(
-    os.environ.get('WX_SOURCE_DIR') or WX_DIR, 'article_cache.json')
 
 # ================================================================ 窗口
 def get_pid2name():
@@ -594,9 +586,9 @@ def _calibrate_scroll_px(hwnd, l, t, r, b, tries=3):
 
 
 def get_scroll_px(hwnd, l, t, r, b, refresh=False):
-    """获取滚轮 1 格像素: 优先读缓存(scroll_calib.json);无缓存或 refresh 时实测。
+    """获取滚轮 1 格像素: 优先读统一缓存 scroll 分区;无缓存或 refresh 时实测。
     实测成功写缓存(跨运行复用)。全部失败返回 SCROLL_PX_PER_CLICK 兜底。"""
-    calib = read_json(SCROLL_CALIB_FILE, {}) or {}
+    calib = read_cache(CACHE_SCROLL)
     if not refresh and calib.get('px_per_click'):
         px = float(calib['px_per_click'])
         print('SCROLL_PX_FROM_CACHE=%.1f' % px)
@@ -605,8 +597,8 @@ def get_scroll_px(hwnd, l, t, r, b, refresh=False):
     if px and px > 0:
         calib['px_per_click'] = px
         calib['measured_at'] = datetime.datetime.now().isoformat(timespec='seconds')
-        write_json(SCROLL_CALIB_FILE, calib)   # 保留 item_height,勿整体覆盖
-        print('SCROLL_PX_CALIBRATED=%.1f (已缓存 %s)' % (px, SCROLL_CALIB_FILE))
+        write_cache(CACHE_SCROLL, calib)   # 保留 item_height,勿整体覆盖
+        print('SCROLL_PX_CALIBRATED=%.1f (已缓存 %s)' % (px, CACHE_FILE))
         return px
     print('SCROLL_PX_CALIB_FAIL - 用兜底 %.1f px' % SCROLL_PX_PER_CLICK)
     return SCROLL_PX_PER_CLICK
@@ -827,7 +819,7 @@ def list_ocr(hwnd, path=None):
 # ================================================================ 动态布局(去硬编码)
 # 原 REGION_* 常量按 1920 宽设计,换机器/窗口尺寸变化会导致区域错位。
 # 现改为: 区域按窗口宽高比例生成(get_region);列表布局参数(col_split 左右列分界、
-# min_y 列表起始 y)由首屏 OCR 自动学习并缓存 layout.json,跨运行复用。
+# min_y 列表起始 y)由首屏 OCR 自动学习并缓存(cache.json 的 layout 分区),跨运行复用。
 _DEFAULT_COL_SPLIT = 720     # 左右列分界兜底(双列瀑布流布局)
 _DEFAULT_LIST_MIN_Y = 250    # 列表起始 y 兜底(顶部标签栏/搜索区之下)
 _LAYOUT = None               # 缓存: {'col_split': int, 'list_top': int}
@@ -911,18 +903,18 @@ def recon_layout(phase, hwnd):
     return found
 
 
-def get_template_coord(hwnd, template_name, region_kind, cache_file,
-                       cache_key, label, refresh=False):
+def get_template_coord(hwnd, template_name, region_kind, section,
+                       label, refresh=False):
     """获取某模板图标在窗口内的绝对屏幕坐标(通用缓存侦查)。
 
-    与 input_field 同模式: 优先读缓存文件(绑定窗口 rect, 位置一致才复用);
-    无缓存/窗口移动/refresh 时用模板匹配侦查并写缓存。
-    返回 (abs_x, abs_y, score) 或 None。跨运行复用缓存,免去每次
-    TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
+    与 input_field 同模式: 优先读统一缓存 cache.json 对应分区
+    (绑定窗口 rect, 位置一致才复用); 无缓存/窗口移动/refresh 时用模板匹配
+    侦查并写缓存。返回 (abs_x, abs_y, score) 或 None。跨运行复用缓存,
+    免去每次 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
     rect = win_rect(hwnd)
-    cache = read_json(cache_file, {}) or {}
-    if not refresh and cache.get('window_rect') == list(rect):
-        hit = cache.get(cache_key)
+    sec = read_cache(section)
+    if not refresh and sec.get('window_rect') == list(rect):
+        hit = sec.get('coord')
         if hit and len(hit) == 3:
             print('%s_FROM_CACHE @ (%d,%d) score=%.3f'
                   % (label, hit[0], hit[1], hit[2]))
@@ -931,13 +923,13 @@ def get_template_coord(hwnd, template_name, region_kind, cache_file,
                         region=get_region(region_kind, hwnd))
     if hit:
         try:
-            write_json(cache_file, {
+            write_cache(section, {
                 'window_rect': list(rect),
-                cache_key: list(hit),
+                'coord': list(hit),
                 'recon_at': datetime.datetime.now().isoformat(timespec='seconds'),
             })
             print('%s_RECON @ (%d,%d) score=%.3f (已缓存 %s)'
-                  % (label, hit[0], hit[1], hit[2], cache_file))
+                  % (label, hit[0], hit[1], hit[2], CACHE_FILE))
         except Exception as e:
             print('%s_CACHE_WRITE_FAIL %s' % (label, e))
     return hit
@@ -946,17 +938,17 @@ def get_template_coord(hwnd, template_name, region_kind, cache_file,
 def get_input_field(hwnd, refresh=False):
     """获取搜一搜搜索框(input_field.png)的绝对屏幕坐标(委托通用版)。"""
     return get_template_coord(hwnd, 'input_field.png', 'searchbox',
-                              INPUT_FIELD_CACHE_FILE, 'input_field',
+                              CACHE_INPUT_FIELD,
                               'INPUT_FIELD', refresh=refresh)
 
 
 def get_article_coord(hwnd):
     """获取"文章"标签(article.png)的绝对屏幕坐标(与 input_field 同缓存模式)。
 
-    缓存文件 article_cache.json 按文章类型命名, 新机器首次自动侦查写缓存,
+    缓存分区 article 按文章类型命名, 新机器首次自动侦查写缓存,
     后续复用坐标点击, 免去 TagUI 原生 SikuliX 全屏扫描(0.5-2s)。"""
     return get_template_coord(hwnd, 'article.png', 'article_tab',
-                              ARTICLE_CACHE_FILE, 'article', 'ARTICLE')
+                              CACHE_ARTICLE, 'ARTICLE')
 
 
 def preflight_main(main_hwnd=None):
@@ -979,9 +971,9 @@ def preflight_main(main_hwnd=None):
 
 
 def _load_layout():
-    """读 layout.json 缓存(失败/不存在返回 None)"""
+    """读统一缓存 cache.json 的 layout 分区(失败/不存在返回 None)"""
     try:
-        return read_json(LAYOUT_CALIB_FILE, None)
+        return read_cache(CACHE_LAYOUT) or None
     except Exception:
         return None
 
@@ -1010,7 +1002,7 @@ def _layout_fallback(kind):
 
 
 def get_col_split():
-    """当前左右列分界 x(窗口内相对坐标)。优先 layout.json 学习值,
+    """当前左右列分界 x(窗口内相对坐标)。优先 cache.json 的 layout 分区学习值,
     否则按当前窗口宽度比例兜底(双列瀑布流分界 ≈ 37.5% 窗口宽)。"""
     global _LAYOUT
     if _LAYOUT is None:
@@ -1019,7 +1011,7 @@ def get_col_split():
 
 
 def get_list_min_y():
-    """当前列表起始 y(窗口内相对坐标)。优先 layout.json 学习值,
+    """当前列表起始 y(窗口内相对坐标)。优先 cache.json 的 layout 分区学习值,
     否则按当前窗口高度比例兜底(列表起始 ≈ 26% 窗口高)。"""
     global _LAYOUT
     if _LAYOUT is None:
@@ -1028,7 +1020,7 @@ def get_list_min_y():
 
 
 def _learn_layout(items, anchor_y=None):
-    """从首屏 OCR 结果自动学习列表布局,写入 layout.json 缓存。
+    """从首屏 OCR 结果自动学习列表布局,写入统一缓存 cache.json 的 layout 分区。
     1) col_split: 取所有文本 x0 分布的最大间隙中点(左右列分界);
     2) list_top:  取最顶部文章标题的 cy,下修一个余量(避开标签栏/搜索区)。
     anchor_y: 点击"文章"标签时鼠标停留位置的窗口内相对 y(标签栏 y 即
@@ -1067,7 +1059,7 @@ def _learn_layout(items, anchor_y=None):
         if tops:
             cur['list_top'] = max(top_cy, int(tops[0]) - 30)
     if cur.get('col_split') or cur.get('list_top'):
-        write_json(LAYOUT_CALIB_FILE, {
+        write_cache(CACHE_LAYOUT, {
             'col_split': cur.get('col_split'),
             'list_top': cur.get('list_top'),
             'learned_at': datetime.datetime.now().isoformat(timespec='seconds'),
@@ -1119,6 +1111,19 @@ def write_json(name, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return path
+
+
+def read_cache(section):
+    """读统一缓存 cache.json 中某分区(不存在/损坏返回 {})。"""
+    cache = read_json(CACHE_FILE, {}) or {}
+    return cache.get(section) or {}
+
+
+def write_cache(section, data):
+    """合并写统一缓存 cache.json 某分区(保留其他分区,勿整体覆盖)。"""
+    cache = read_json(CACHE_FILE, {}) or {}
+    cache[section] = data
+    write_json(CACHE_FILE, cache)
 
 
 def get_clipboard():
@@ -1695,7 +1700,7 @@ def run_tag(tag_file, timeout=180):
     env = os.environ.copy()
     env['WX_WORKDIR'] = wd
     env['WX_SOURCE_DIR'] = WX_DIR   # 指回真实源码目录: 子进程副本的 __file__ 指向任务目录,
-    # 持久化缓存(如 scroll_calib.json)需写到真实目录才能跨运行复用
+    # 持久化缓存(cache.json)需写到真实目录才能跨运行复用
     cmd = 'chcp 65001 >nul & "%s" %s -n -q' % (TAGUI_CMD, tag_file)
     log_path = os.path.join(wd, '_tag_stdout.log')
     with open(log_path, 'w', encoding='utf-8', errors='replace') as fh:
@@ -1942,7 +1947,7 @@ def flow_articles():
     tag 不再原生 click article.png)。返回 JSON: {ok, ...}"""
     global _hwnd, _lt, _tt, _rt, _bt, _cfg, _account, _start, _end
     hwnd, l, t, r, b = _hwnd, _lt, _tt, _rt, _bt
-    # 点"文章"标签(缓存优先: 首次侦查写 article_cache.json, 后续复用坐标;重试)
+    # 点"文章"标签(缓存优先: 首次侦查写 cache.json 的 article 分区, 后续复用坐标;重试)
     art = None
     for attempt in range(RETRY_ARTICLE_TAB):
         art = get_article_coord(hwnd)
@@ -1968,9 +1973,9 @@ def flow_articles():
     # tag1 分析列表时动态计算单篇报告高度并缓存,滚动(tag2)直接复用
     item_h = _item_height_from_items(items)
     if item_h and item_h > 0:
-        calib = read_json(SCROLL_CALIB_FILE, {}) or {}
+        calib = read_cache(CACHE_SCROLL)
         calib['item_height'] = item_h
-        write_json(SCROLL_CALIB_FILE, calib)
+        write_cache(CACHE_SCROLL, calib)
         print('ITEM_HEIGHT_CACHED_FROM_TAG1=%.1f' % item_h)
     else:
         print('ITEM_HEIGHT_CALC_FAIL_FROM_TAG1 (滚动时兜底估算)')
@@ -2019,7 +2024,7 @@ def _run_detail_scroll(max_rounds=40):
     # 无缓存才实测,实测后滚动回顶还原基线,保证后续每轮 span 从列表顶部量起;
     # px_per_click 已持久化到 WX_DIR,跨运行直接命中缓存不再校准。 ----
     hwnd, l, t, r, b = _hwnd, _lt, _tt, _rt, _bt
-    calib = read_json(SCROLL_CALIB_FILE, {}) or {}
+    calib = read_cache(CACHE_SCROLL)
     if calib.get('px_per_click'):
         print('SCROLL_PX_PRELOOP_FROM_CACHE=%.1f' % calib['px_per_click'])
     else:
@@ -2420,7 +2425,7 @@ def _scroll_by_items(hwnd, l, t, r, b, n_items=SCROLL_ITEMS_PER_PAGE, target_px=
     target_px 缺省时 = n_items x 单篇高度(优先读缓存,无缓存动态测量一次并写回);
     换算滚轮格数 = 目标像素 / 每格像素(动态实测,缓存复用),至少 1 格。
     返回实际滚动的格数。"""
-    calib = read_json(SCROLL_CALIB_FILE, {}) or {}
+    calib = read_cache(CACHE_SCROLL)
     if target_px is None:
         item_h = calib.get('item_height')
         if not item_h or item_h <= 0:
@@ -2430,7 +2435,7 @@ def _scroll_by_items(hwnd, l, t, r, b, n_items=SCROLL_ITEMS_PER_PAGE, target_px=
                 print('ITEM_HEIGHT_MEASURE_FAIL - 用估算 %.1f px' % item_h)
             else:
                 calib['item_height'] = item_h
-                write_json(SCROLL_CALIB_FILE, calib)
+                write_cache(CACHE_SCROLL, calib)
                 print('ITEM_HEIGHT_CACHED=%.1f' % item_h)
         else:
             print('ITEM_HEIGHT_FROM_CACHE=%.1f' % item_h)
