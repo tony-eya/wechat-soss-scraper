@@ -69,3 +69,12 @@ temp/
 个人收款码.png
 *.personal.png
 个人*.*
+
+# ---- 界面控件模板素材(不入库,需按各自微信版本自行截图替换) ----
+# 仅忽略常规素材文件名;运行时诊断截图(tag_all_*/scroll_probe_*)已在上面精确覆盖。
+tagui/flows/wx/article/article.png
+tagui/flows/wx/article/copy_url.png
+tagui/flows/wx/article/home.png
+tagui/flows/wx/article/input_field.png
+tagui/flows/wx/article/more.png
+tagui/flows/wx/article/wx_search.png

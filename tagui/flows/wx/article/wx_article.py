@@ -126,6 +126,7 @@ VK_1 = 0x31             # 数字键 '1'(触发搜索建议面板用)
 # ---- 界面等待(秒) ----
 SLEEP_CLICK = 0.1        # 点击前/后微停顿
 SLEEP_PAGE_OPEN = 0.3    # 详情页/菜单弹出等待
+SLEEP_DETAIL_LOAD = 1.0  # 点击标题进入详情页后,等待文章正文加载,再点"更多"按钮
 SLEEP_WHEEL = 1.0        # 滚轮操作后
 SLEEP_TAB_CLOSE = 1.0    # 关闭标签页后等待完全关闭
 SLEEP_UI_SHORT = 0.5
@@ -2327,7 +2328,7 @@ def _step_detail():
                     print('RELOCATE_MISS,沿用刷新坐标 (%d,%d)' % (abs_x, abs_y))
             click_at(abs_x, abs_y)
             print('CLICKED_BY_COORD (%d,%d) round=%d' % (abs_x, abs_y, rnd))
-            time.sleep(SLEEP_PAGE_OPEN)   # 等详情页打开
+            time.sleep(SLEEP_DETAIL_LOAD)   # 等文章正文加载出来,再点"更多"按钮
             move_cursor_to_tabbar(l, t, r, b)   # 鼠标移到顶部标签栏,避免悬停内容区
             cu, _ = _find_copy_url(hwnd, aid, rnd)
             if cu:
