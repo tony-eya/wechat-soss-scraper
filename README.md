@@ -32,7 +32,9 @@
 
 ## 效果演示
 
-<iframe src="https://player.bilibili.com/player.html?bvid=BV1gz4y1A7Wb&page=1&high_quality=1&danmaku=0" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true" width="100%" height="450"></iframe>
+[![点击播放演示视频](https://i0.hdslb.com/bfs/archive/f962fee44cef9c703f4bf945688ba7cee32ae2a5.jpg)](https://www.bilibili.com/video/BV1vWuA6dEFG?t=5.2)
+
+> 点击上图跳转 B 站观看演示视频（GitHub 不支持内嵌播放器，故用封面图 + 链接形式展示）
 
 ---
 
@@ -296,7 +298,7 @@ TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 
 
 ## 云端版 · Client Intel
 
-本地版适合自己掌控一切；想省事的话，同一引擎已经在 **[Client Intel](https://intelcrm.cn/)** 云端跑起来了——智能 Agent 调度多源数据爬虫（含微信公众号文章），自动过滤垃圾与噪声，每天定时把 HTML 情报简报发到你的邮箱。
+本地版适合自己掌控一切；想省事的话，同一引擎已经在 **[Client Intel](https://intelcrm.cn/)** 云端跑起来了——**直接订阅，开箱即用**，无需任何环境配置：智能 Agent 调度多源数据爬虫（含微信公众号文章），自动过滤垃圾与噪声，每天定时把 HTML 情报简报发到你的邮箱。
 
 | | 本地版（本仓库） | 云端版（Client Intel） |
 |---|---|---|
@@ -305,7 +307,7 @@ TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 
 | 数据 | `articles.json` 落本地 | 多源聚合 + 每日情报简报 |
 | 覆盖 | 单号单次抓取 | 8,800+ 企业目标，动态解析准确率 99.8% |
 | 场景 | 个人 / 学习 / 深度定制 | 企业新闻监测 / 竞品分析 / 市场追踪 |
-| 费用 | 免费（开源） | 7 天免费试用 |
+| 费用 | 免费（开源） | 直接订阅 · 7 天免费试用 |
 
 [🚀 前往 Client Intel](https://intelcrm.cn/) · [平台功能介绍](https://intelcrm.cn/)
 
@@ -321,8 +323,8 @@ TagUI 自带的 `src\unx\*`、`src\php\*`、`phantomjs\phantomjs.exe` 为原生 
       <em>技术交流 · 问题反馈</em>
     </td>
     <td align="center">
-      <img src="https://intelcrm.cn/minio/intelligence/b7f56a1bf49b943045076dda15fce716.jpg" width="200"><br>
-      <b>赞赏支持</b><br>
+      <img src="https://intelcrm.cn/minio/intelligence/pay.jpg" width="200"><br>
+      <b>赞赏码</b><br>
       <em>开源不易，感谢支持</em>
     </td>
   </tr>
