@@ -1698,10 +1698,16 @@ def install_ctrl_handler():
         print('WARN - CTRL_HANDLER_INSTALL_FAILED: %s' % e)
 
 
-def run_tag(tag_file, timeout=180):
+def run_tag(tag_file, timeout=21600, idle_timeout=300):
     """在临时工作目录内执行 tag 流程: 流程/脚本/模板均已拷贝到临时目录,
     通过 WX_WORKDIR 环境变量注入临时目录路径(tag 内 py 块据此加载本文件并落库)。
-    timeout: 单次 tag 执行上限秒数,超时强制终止整棵进程树(返回 rc=124 及已捕获输出)。
+
+    双层超时:
+      timeout(默认 6 小时): 总时长硬上限,防止病态循环永远跑不完,超时 rc=124。
+      idle_timeout(默认 5 分钟): 无进展看门狗。articles.json 是真实进展心跳
+      (每抓到一条 URL / 每轮滚动落库新条目都会重写该文件),其 mtime 超过
+      idle_timeout 秒未变化视为卡死(弹窗/风控/窗口丢失),超时 rc=125。
+      不限日期抓全量历史时总耗时可远超 15 分钟,故用"无进展才停"而非固定短超时。
 
     注意: TagUI 是 cmd -> tagui.cmd -> node 的多级进程树。若用 subprocess.run(timeout=)
     只会杀掉顶层 cmd,孤儿 node 仍持有 stdout 管道,导致 communicate() 永不返回。
@@ -1713,23 +1719,50 @@ def run_tag(tag_file, timeout=180):
     # 持久化缓存(cache.json)需写到真实目录才能跨运行复用
     cmd = 'chcp 65001 >nul & "%s" %s -n -q' % (TAGUI_CMD, tag_file)
     log_path = os.path.join(wd, '_tag_stdout.log')
+    arts_path = os.path.join(wd, ARTICLES_FILE)
     with open(log_path, 'w', encoding='utf-8', errors='replace') as fh:
         proc = subprocess.Popen(cmd, cwd=wd, shell=True,
                                 stdout=fh, stderr=subprocess.STDOUT, env=env,
                                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         global _ACTIVE_PROC
         _ACTIVE_PROC = proc
+        last_mtime = 0
+        t0 = last_activity = time.time()
         try:
-            proc.wait(timeout=timeout)
-            rc = proc.returncode
-        except subprocess.TimeoutExpired:
-            subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
-                           capture_output=True)
-            try:
-                proc.wait(timeout=10)
-            except Exception:
-                pass
-            rc = 124
+            while proc.poll() is None:
+                # 心跳: articles.json mtime 变化 = 有真实进展,重置看门狗
+                try:
+                    m = os.path.getmtime(arts_path)
+                    if m != last_mtime:
+                        last_mtime = m
+                        last_activity = time.time()
+                except OSError:
+                    pass
+                if idle_timeout and time.time() - last_activity > idle_timeout:
+                    print('IDLE_TIMEOUT no_articles_write_for=%ds - 判定卡死,终止进程树'
+                          % idle_timeout)
+                    subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                                   capture_output=True)
+                    try:
+                        proc.wait(timeout=10)
+                    except Exception:
+                        pass
+                    rc = 125
+                    break
+                if timeout and time.time() - t0 > timeout:
+                    print('HARD_TIMEOUT total_limit=%ds - 总时长硬上限,终止进程树'
+                          % timeout)
+                    subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                                   capture_output=True)
+                    try:
+                        proc.wait(timeout=10)
+                    except Exception:
+                        pass
+                    rc = 124
+                    break
+                time.sleep(5)
+            else:
+                rc = proc.returncode
         finally:
             _ACTIVE_PROC = None
     with open(log_path, encoding='utf-8', errors='replace') as fh:
@@ -2746,12 +2779,13 @@ def main():
             return 2
         print('SOSS_OPENED hwnd=%s (fallback)' % soss)
         # fallback 方案已直接打开 SOSS: 后续 py 块从已开窗口继续
-        rc, stdout = run_tag('tag_all.tag', timeout=900)
+        rc, stdout = run_tag('tag_all.tag', timeout=21600, idle_timeout=300)
         print(stdout)
         print('TagUI tag_all 退出码: %d' % rc)
-        if rc == 124:
+        if rc in (124, 125):
             print(json.dumps({'status': 'failed', 'phase': 'all',
-                              'reason': 'tag_all_timeout'},
+                              'reason': 'tag_all_timeout' if rc == 124
+                              else 'idle_timeout'},
                              ensure_ascii=False, indent=2))
             close_phase()
             return 2
@@ -2763,12 +2797,14 @@ def main():
     #     flow_fill_search -> click article.png -> flow_articles ----
     print('==== phase=all account=%s tab=%s range=%s~%s ===='
           % (cfg['account'], cfg['tab'], cfg['start'], cfg['end']))
-    rc, stdout = run_tag('tag_all.tag', timeout=900)
+    rc, stdout = run_tag('tag_all.tag', timeout=21600, idle_timeout=300)
     print(stdout)
     print('TagUI tag_all 退出码: %d' % rc)
-    if rc == 124:
+    if rc in (124, 125):
         print(json.dumps({'status': 'failed', 'phase': 'all',
-                          'reason': 'tag_all_timeout'}, ensure_ascii=False, indent=2))
+                          'reason': 'tag_all_timeout' if rc == 124
+                          else 'idle_timeout'},
+                         ensure_ascii=False, indent=2))
         close_phase()
         return 2
 
